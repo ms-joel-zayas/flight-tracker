@@ -1,496 +1,109 @@
 /* =====================================================================
-   FLIGHT TRACKER — MVP WIREFRAME STYLES (Week 6)
-   CSS = presentation. This file only decides how things look.
+   FLIGHT TRACKER — STARTER (CSS = presentation)
+   CSS decides HOW things look: color, size, spacing, position.
+   It never adds new content and never reacts to clicks by itself.
+
+   Work through the steps in order, saving and refreshing the browser
+   after each one. Compare with the v1-final branch if you get stuck.
 
    Wireframe rules for this stage:
    - black, white and grays only (no brand colors yet)
    - monospace type, thick outlines, no shadows or gradients
    - layout first, polish later
-
-   Sections (each matches a component name in index.html):
-     1. Tokens        2. Base          3. Shared pieces (buttons, fields, badges)
-     4. Header        5. Layout        6. Sidebar: search / filters / list
-     7. Detail panel  8. Map           9. Replay bar
-    10. Alert banner 11. Motion       12. Small screens
    ===================================================================== */
 
 
-/* ---------- 1. Tokens: one place to change the whole look ---------- */
-:root {
-  --ink: #111111;
-  --gray: #8a8a8a;
-  --mid: #c4c4c4;
-  --light: #ececec;
-  --lighter: #f6f6f6;
-  --paper: #ffffff;
-
-  --line: 2px;
-  --radius: 8px;
-  --sidebar-width: 340px;
-  --header-height: 56px;
-  --font: "Courier New", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
+/* ---------- STEP 1. Tokens ----------
+   WHY: Put every color, size and font in ONE place as CSS variables.
+   Later, changing the whole look means changing one line.
+   YOUR CODE: a :root { ... } rule defining custom properties such as
+   --ink (near-black), --paper (white), --light and --gray (greys),
+   --line (border thickness), --radius, --sidebar-width, --header-height
+   and --font (a monospace stack).
+   Use them later with var(--ink).                                        */
 
 
-/* ---------- 2. Base ---------- */
-*,
-*::before,
-*::after { box-sizing: border-box; }
-
-html, body { height: 100%; margin: 0; }
-
-body {
-  font-family: var(--font);
-  font-size: 14px;
-  line-height: 1.35;
-  color: var(--ink);
-  background: var(--paper);
-}
-
-h1, h2, p, dl, dd, ul { margin: 0; padding: 0; }
-ul { list-style: none; }
-
-:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
-
-.visually-hidden {
-  position: absolute;
-  width: 1px; height: 1px;
-  margin: -1px; padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-[hidden] { display: none !important; }
+/* ---------- STEP 2. Base ----------
+   WHY: Browsers add their own default margins and sizes. A small reset
+   makes every browser start from the same place.
+   YOUR CODE:
+   - box-sizing: border-box on everything (*), so padding does not make
+     elements wider than you asked for.
+   - html and body: height 100% and no margin.
+   - body: font-family, font-size, text color and background from your tokens.
+   - Remove default margin and padding from h1, h2, p, dl, dd and ul,
+     and list-style: none on ul.
+   - A rule for the [hidden] attribute that sets display: none !important,
+     so hidden elements stay hidden even when you give them a display value.
+   - A .visually-hidden class that hides text visually but keeps it for
+     screen readers (position absolute, 1px size, overflow hidden).        */
 
 
-/* ---------- 3. Shared pieces ---------- */
-.btn {
-  font: inherit;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.btn:hover:not(:disabled) { background: var(--light); }
-.btn[aria-pressed="true"],
-.btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
-.btn:disabled { color: var(--gray); border-color: var(--gray); cursor: not-allowed; }
-.btn--strong { font-weight: bold; letter-spacing: 0.04em; }
-.btn--block { display: block; width: 100%; text-align: left; margin-top: 8px; }
-.btn--icon { padding: 0 9px; font-size: 18px; line-height: 1.3; font-weight: bold; }
-.btn--inverse { color: var(--paper); background: transparent; border-color: var(--paper); }
-.btn--inverse:hover:not(:disabled) { background: #333333; }
-
-.field {
-  font: inherit;
-  width: 100%;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: var(--radius);
-  padding: 7px 10px;
-}
-.field--small { padding: 4px 8px; width: auto; }
-.field:disabled { color: var(--gray); border-color: var(--gray); }
-
-.badge {
-  display: inline-block;
-  font-weight: bold;
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: 999px;
-  padding: 4px 14px;
-}
-
-.btn-group { display: inline-flex; }
-.btn-group .btn { border-radius: 0; margin-left: -2px; }
-.btn-group .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
-.btn-group .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+/* ---------- STEP 3. Shared pieces ----------
+   WHY: Buttons, fields and badges appear in many places. Style them once
+   with a class and reuse it everywhere, instead of repeating yourself.
+   YOUR CODE: .btn, .field and .badge rules with a border using
+   var(--line), rounded corners, and padding.
+   Add a :hover rule for .btn and a :disabled rule.
+   Add .btn[aria-pressed="true"] to show the "on" state. This is a nice
+   way to style state: the HTML says what is true, the CSS shows it.      */
 
 
-/* ---------- 4. Header ---------- */
-.header {
-  height: var(--header-height);
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 16px;
-  background: var(--light);
-  border-bottom: var(--line) solid var(--ink);
-}
-.header__title { font-size: 22px; letter-spacing: 0.06em; }
-.header__right { display: flex; align-items: center; gap: 12px; }
-.badge:last-child { color: var(--gray); }
-
-/* Status pill (REQ-03) */
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  font-weight: bold;
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: 999px;
-  padding: 6px 16px;
-}
-.status-pill__dot {
-  width: 10px; height: 10px;
-  margin-right: 8px;
-  border-radius: 50%;
-  background: var(--ink);
-}
-.status-pill[data-state="stale"] { border-style: dashed; background: var(--light); }
-.status-pill[data-state="stale"] .status-pill__dot { background: var(--paper); border: 2px solid var(--ink); }
-.status-pill[data-state="replay"] { background: var(--ink); color: var(--paper); }
-.status-pill[data-state="replay"] .status-pill__dot { background: var(--paper); border-radius: 0; }
-
-/* Demo popover */
-.demo { position: relative; }
-.demo__panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  width: 310px;
-  padding: 12px;
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: var(--radius);
-}
-.demo__note { font-size: 12px; color: var(--gray); }
+/* ---------- STEP 4. Header ----------
+   WHY: The header should sit on one row: title on the left, status on the right.
+   YOUR CODE: .header with display: flex, justify-content: space-between,
+   align-items: center, a fixed height from --header-height, and a bottom border.
+   Style the status text as a pill (rounded border, bold).                */
 
 
-/* ---------- 5. Layout: header on top, sidebar + map below ---------- */
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  min-height: 560px;
-  border: var(--line) solid var(--ink);
-}
-
-.layout {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-/* Handle that slides the sidebar away */
-.panel-handle {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--sidebar-width) - 1px);
-  z-index: 20;
-  width: 28px; height: 56px;
-  transform: translateY(-50%);
-  font: inherit;
-  font-size: 20px;
-  font-weight: bold;
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  cursor: pointer;
-  transition: left 0.2s ease;
-}
-.panel-handle:hover { background: var(--light); }
-.app[data-panel="closed"] .panel-handle { left: -2px; }
+/* ---------- STEP 5. Layout ----------
+   WHY: The screen is two columns under the header: sidebar and map.
+   YOUR CODE:
+   - .app: display flex, flex-direction column, height 100vh
+     (so the header sits on top and the rest fills the window).
+   - .layout (or whichever wrapper you chose): flex: 1 and display flex,
+     so the sidebar and map sit side by side.
+   - Add min-height: 0 where a child must scroll, otherwise flex children
+     grow past the screen.                                                 */
 
 
-/* ---------- 6. Sidebar: search, filters, list ---------- */
-.sidebar {
-  flex: none;
-  width: var(--sidebar-width);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--paper);
-  border-right: var(--line) solid var(--ink);
-  transition: margin-left 0.2s ease;
-}
-.app[data-panel="closed"] .sidebar { margin-left: calc(var(--sidebar-width) * -1); }
-
-.search { padding: 12px 12px 8px; }
-
-.filters {
-  display: flex;
-  gap: 8px;
-  padding: 0 12px 12px;
-  border-bottom: var(--line) solid var(--ink);
-}
-.filters__item { flex: 1; }
-
-.flight-list { flex: 1; min-height: 80px; overflow-y: auto; }
-.flight-list li + li { border-top: 1px solid var(--light); }
-
-.flight-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  font: inherit;
-  text-align: left;
-  color: var(--ink);
-  background: var(--paper);
-  border: 0;
-  border-left: 6px solid transparent;
-  padding: 9px 12px;
-  cursor: pointer;
-}
-.flight-row:hover { background: var(--lighter); }
-.flight-row[aria-pressed="true"] { background: var(--mid); border-left-color: var(--ink); }
-
-.flight-row__dot {
-  flex: none;
-  width: 14px; height: 14px;
-  border: var(--line) solid var(--ink);
-  border-radius: 50%;
-}
-.flight-row__text { display: flex; flex-direction: column; flex: 1; }
-.flight-row__name { font-size: 15px; }
-.flight-row__route { font-size: 12px; color: #555555; }
-.flight-row__flag { display: none; font-weight: bold; }
-.flight-row.is-alert .flight-row__flag { display: inline; }
-.flight-row.is-alert .flight-row__dot { background: var(--ink); }
-.flight-row.is-alert .flight-row__name { text-decoration: underline; }
-
-.flight-list__empty { padding: 16px 12px; color: var(--gray); }
+/* ---------- STEP 6. Sidebar: search, filters, list ----------
+   WHY: Make the list easy to scan and easy to click.
+   YOUR CODE:
+   - .sidebar: fixed width from --sidebar-width, a right border, and
+     flex column so the list can fill the leftover height.
+   - .filters: display flex with a gap so the two selects sit side by side.
+   - .flight-list: flex: 1 and overflow-y: auto so only the list scrolls.
+   - .flight-row: full-width button, no default border, text-align: left,
+     a hover background, and a different look for
+     .flight-row[aria-pressed="true"] (the selected flight).                */
 
 
-/* ---------- 7. Detail panel ---------- */
-.detail {
-  flex: none;
-  background: var(--paper);
-  border-top: var(--line) solid var(--ink);
-}
-.detail[hidden] { display: none; }
-
-.detail__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--light);
-  border-bottom: var(--line) solid var(--ink);
-}
-.detail__title { font-size: 20px; letter-spacing: 0.04em; }
-
-.tabs { display: flex; border-bottom: 1px solid var(--mid); }
-.tab {
-  flex: 1;
-  font: inherit;
-  font-weight: bold;
-  color: var(--gray);
-  background: var(--paper);
-  border: 0;
-  border-bottom: 3px solid transparent;
-  padding: 7px 0;
-  cursor: pointer;
-}
-.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
-
-.detail__view { padding: 12px; }
-
-.route { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
-.route__code { font-size: 18px; }
-.progress { height: 14px; border: var(--line) solid var(--ink); background: var(--paper); }
-.progress__bar { display: block; height: 100%; background: var(--ink); }
-
-.times { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: #555555; }
-.times strong { color: var(--ink); font-size: 15px; }
-
-.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 14px; }
-.fields dt { font-size: 12px; color: var(--gray); }
-.fields dd { font-weight: bold; }
-.fields dd.is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
-
-.chart-placeholder {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border: var(--line) dashed var(--ink);
-  background: var(--lighter);
-}
-.chart-placeholder__title { font-size: 12px; font-weight: bold; letter-spacing: 0.06em; }
-.chart-placeholder svg { height: 84px; width: 100%; }
-.chart-placeholder polyline { fill: none; stroke: var(--ink); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
-.chart-placeholder__note { font-size: 11px; color: var(--gray); }
+/* ---------- STEP 7. Detail panel ----------
+   WHY: The panel shows a few labelled values. A grid keeps them tidy.
+   YOUR CODE: Give the panel a top border and padding. Use display: grid
+   with two columns on the <dl>, small grey labels (dt) and bold
+   values (dd).                                                            */
 
 
-/* ---------- 8. Map ---------- */
-.map {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  background-color: var(--lighter);
-  /* simple grid so it reads as a map surface */
-  background-image:
-    linear-gradient(var(--light) 1px, transparent 1px),
-    linear-gradient(90deg, var(--light) 1px, transparent 1px);
-  background-size: 12.5% 16.666%;
-}
-
-.badge--count { position: absolute; top: 16px; left: 28px; z-index: 5; }
-
-.map__caption {
-  position: absolute;
-  right: 16px;
-  bottom: 124px;
-  font-size: 11px;
-  color: var(--gray);
-}
-
-/* Paths (REQ-06): coordinates are in % so they line up with the markers */
-.map__paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.path polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
-.path__trail-short { stroke: var(--gray); stroke-width: 2; }
-.path__trail-full,
-.path__projected { display: none; }
-.path.is-selected .path__trail-short { display: none; }
-.path.is-selected .path__trail-full { display: inline; stroke: var(--ink); stroke-width: 3.5; }
-.path.is-selected .path__projected { display: inline; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 9 8; }
-.path.is-dimmed { opacity: 0.2; }
-
-/* Airports */
-.airport { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); pointer-events: none; }
-.airport__sq { display: block; width: 12px; height: 12px; background: var(--paper); border: var(--line) solid var(--ink); }
-.airport__code { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: bold; }
-
-/* Aircraft markers */
-.marker {
-  position: absolute;
-  left: var(--x);
-  top: var(--y);
-  z-index: 3;
-  width: 18px; height: 18px;
-  margin: -9px 0 0 -9px;
-  padding: 0;
-  background: var(--paper);
-  border: var(--line) solid var(--gray);
-  border-radius: 50%;
-  cursor: pointer;
-}
-.marker__nose {            /* the little tick that shows heading */
-  position: absolute;
-  left: 50%; top: 50%;
-  width: 0; height: 0;
-  transform: rotate(var(--rot));
-}
-.marker__nose::before {
-  content: "";
-  position: absolute;
-  left: 7px; top: -1px;
-  width: 9px; height: 2px;
-  background: var(--gray);
-}
-.marker__label {
-  position: absolute;
-  left: 22px; top: -7px;
-  display: none;
-  padding: 0 4px;
-  font-size: 11px;
-  font-weight: bold;
-  white-space: nowrap;
-  background: var(--paper);
-}
-.marker:hover,
-.marker:focus-visible,
-.marker[aria-pressed="true"],
-.marker.is-alert { z-index: 6; }
-.marker:hover .marker__label,
-.marker:focus-visible .marker__label,
-.marker[aria-pressed="true"] .marker__label,
-.marker.is-alert .marker__label { display: block; }
-
-.marker[aria-pressed="true"] {
-  background: var(--gray);
-  border-color: var(--ink);
-  outline: var(--line) dashed var(--ink);
-  outline-offset: 4px;
-}
-.marker[aria-pressed="true"] .marker__nose::before { background: var(--ink); }
-
-.marker.is-alert { background: var(--ink); border-color: var(--ink); }
-.marker.is-alert .marker__nose::before { background: var(--ink); }
-.marker.is-alert::after {   /* pulsing outline (REQ-09) */
-  content: "";
-  position: absolute;
-  inset: -9px;
-  border: var(--line) solid var(--ink);
-  border-radius: 50%;
-  animation: pulse 1.2s ease-out infinite;
-  pointer-events: none;
-}
-.marker.is-dimmed { opacity: 0.2; pointer-events: none; }
-.marker.is-alert.is-dimmed { opacity: 1; pointer-events: auto; }   /* an alert is never hidden by filters */
+/* ---------- STEP 8. Map ----------
+   WHY: The map is a positioned surface. Markers and airports are placed on
+   it with percentages, which is how they stay lined up when the window resizes.
+   YOUR CODE:
+   - .map: position: relative, flex: 1, overflow hidden.
+   - Optional: use two linear-gradient backgrounds to draw a grid so it
+     looks like a map.
+   - .marker and .airport: position: absolute. Place each one using
+     left: var(--x) and top: var(--y). Set --x and --y per element with an
+     inline style="--x: 40%; --y: 30%" in the HTML.
+   - Use transform: translate(-50%, -50%) so the point you choose is the
+     CENTER of the dot, not its top-left corner.
+   - .marker[aria-pressed="true"]: a clear "selected" look.                */
 
 
-/* ---------- 9. Replay bar (REQ-07) ---------- */
-.replay {
-  position: absolute;
-  left: 16px; right: 16px; bottom: 16px;
-  z-index: 8;
-  padding: 10px 12px;
-  background: var(--paper);
-  border: var(--line) solid var(--ink);
-  border-radius: 14px;
-}
-.replay__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.replay__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.replay__live { margin-left: auto; }
-.replay__scrub { display: block; margin-top: 10px; }
-.replay input[type="range"] { width: 100%; accent-color: var(--ink); }
-.replay[data-mode="live"] .replay__controls,
-.replay[data-mode="live"] .replay__scrub { opacity: 0.5; }
-
-
-/* ---------- 10. Alert banner (REQ-09) ---------- */
-.alert-banner {
-  position: absolute;
-  top: 16px;
-  left: 190px; right: 16px;
-  z-index: 9;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px 6px 14px;
-  color: var(--paper);
-  background: var(--ink);
-  border: var(--line) solid var(--ink);
-  border-radius: var(--radius);
-}
-.alert-banner__text { flex: 1; font-weight: bold; letter-spacing: 0.04em; }
-
-
-/* ---------- 11. Motion ---------- */
-@keyframes pulse {
-  0%   { transform: scale(0.8); opacity: 1; }
-  100% { transform: scale(1.5); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .marker.is-alert::after { animation: none; }
-  .sidebar, .panel-handle { transition: none; }
-}
-
-
-/* ---------- 12. Small screens: stack the map above the panel ---------- */
-@media (max-width: 860px) {
-  .app { height: auto; min-height: 100vh; }
-  .layout { flex-direction: column; }
-  .panel-handle { display: none; }
-  .app[data-panel="closed"] .sidebar { margin-left: 0; }
-  .map { order: -1; min-height: 520px; flex: none; }
-  .sidebar { width: auto; border-right: 0; border-top: var(--line) solid var(--ink); }
-  .flight-list { max-height: 240px; }
-  .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
-  .alert-banner { left: 16px; top: 60px; }
-  .map__caption { display: none; }
-}
+/* ---------- STEP 9. Small screens (do this last) ----------
+   WHY: Not everyone uses a wide screen. A media query changes the layout
+   only when the window is narrow.
+   YOUR CODE: @media (max-width: 860px) { ... } that makes .layout stack
+   vertically (flex-direction: column), gives the sidebar full width,
+   and lets the app grow taller than the window.                           */
