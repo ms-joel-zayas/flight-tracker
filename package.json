@@ -1,0 +1,19 @@
+{
+  "name": "flight-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Student flight tracker wireframe with a lightweight live-data backend.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --env-file=.env backend/server.js",
+    "dev": "node --watch --env-file=.env backend/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "express": "^5.3.0"
+  }
+}

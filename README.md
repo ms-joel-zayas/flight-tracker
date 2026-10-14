@@ -1,6 +1,6 @@
 # Flight Tracker — MVP Wireframe (Week 6)
 
-A static, black-and-white working version of the approved Flight Tracker design, built with only **HTML, CSS and JavaScript**. No build step, no libraries, no data source.
+A static, black-and-white working version of the approved Flight Tracker design, built with only **HTML, CSS and JavaScript**. The frontend has no build step and keeps its hard-coded lesson data. An optional live-data backend is documented in [BACKEND.md](BACKEND.md).
 
 | Language | Job | File |
 |---|---|---|
@@ -87,4 +87,4 @@ Each block in `index.html` carries a `data-component="..."` name. These are the 
 
 ## Not included on purpose
 
-No data source, no simulated flight movement, no real map, no chart, no build tools, no framework. Those arrive in later weeks.
+The frontend does not yet consume the live backend, and it still has no real map or chart. Those integrations remain separate student-facing steps.
