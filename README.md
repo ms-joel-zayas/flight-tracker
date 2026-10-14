@@ -133,4 +133,4 @@ Each block in `index.html` carries a `data-component="..."` name. These are the 
 
 ## Not included on purpose
 
-No live API, no real map, no chart, no build tools, no framework. Those arrive in later weeks.
+The frontend does not yet consume the live backend, and it still has no real map or chart. Those integrations remain separate student-facing steps.
