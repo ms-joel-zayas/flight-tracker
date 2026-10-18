@@ -359,6 +359,10 @@ ul { list-style: none; }
 .path.is-selected .path__projected { display: inline; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 9 8; }
 .path.is-dimmed { opacity: 0.2; }
 
+/* Layer that holds the airports and markers (built from data.json) */
+.map__layer { position: absolute; inset: 0; pointer-events: none; }
+.map__layer .marker { pointer-events: auto; }
+
 /* Airports */
 .airport { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); pointer-events: none; }
 .airport__sq { display: block; width: 12px; height: 12px; background: var(--paper); border: var(--line) solid var(--ink); }
@@ -446,10 +450,27 @@ ul { list-style: none; }
 .replay__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .replay__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .replay__live { margin-left: auto; }
-.replay__scrub { display: block; margin-top: 10px; }
+.replay__scrub { display: block; margin-top: 6px; }
+.replay__period { margin: 8px 0 0; font-size: 11px; font-weight: bold; letter-spacing: 0.04em; }
 .replay input[type="range"] { width: 100%; accent-color: var(--ink); }
 .replay[data-mode="live"] .replay__controls,
 .replay[data-mode="live"] .replay__scrub { opacity: 0.5; }
+
+
+/* Load error: shown if data.json cannot be fetched */
+.load-error {
+  position: absolute;
+  top: 56px; left: 50%;
+  z-index: 10;
+  width: min(460px, calc(100% - 32px));
+  transform: translateX(-50%);
+  padding: 14px 16px;
+  background: var(--paper);
+  border: var(--line) dashed var(--ink);
+  border-radius: var(--radius);
+}
+.load-error__title { margin: 0 0 6px; font-weight: bold; }
+.load-error__text { margin: 0; font-size: 12px; line-height: 1.5; }
 
 
 /* ---------- 10. Alert banner (REQ-09) ---------- */

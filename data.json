@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "title": "Flight Tracker sample data",
+    "replayDate": "Oct 02",
+    "periodSeconds": 5,
+    "alertFlightId": "AC3306",
+    "defaultFlightId": "AC2210",
+    "notes": [
+      "x and y are percentages of the map (0-100). x=0,y=0 is the top-left corner, x=100,y=100 is the bottom-right.",
+      "Each period is one snapshot in time. The app shows one period every periodSeconds seconds while a replay is playing.",
+      "A flight's x,y in each period is a point on the straight line from its origin airport to its destination airport; progress is how far along that line it is (0-100).",
+      "altitude is null when a flight is not reporting one; the page shows 'Not available'.",
+      "departed and eta are fixed placeholder times and are not tied to the period clock.",
+      "Live mode is not connected yet. A live API will later return the same kind of record for the current moment."
+    ]
+  },
+  "airports": [
+    {"code": "SEA", "name": "Seattle-Tacoma Intl", "x": 10, "y": 21},
+    {"code": "SFO", "name": "San Francisco Intl", "x": 7, "y": 47},
+    {"code": "LAX", "name": "Los Angeles Intl", "x": 12, "y": 66},
+    {"code": "DEN", "name": "Denver Intl", "x": 34, "y": 44},
+    {"code": "ORD", "name": "Chicago O'Hare Intl", "x": 58, "y": 33},
+    {"code": "ATL", "name": "Hartsfield-Jackson Atlanta Intl", "x": 68, "y": 64},
+    {"code": "JFK", "name": "New York JFK Intl", "x": 86, "y": 40},
+    {"code": "BOS", "name": "Boston Logan Intl", "x": 92, "y": 28}
+  ],
+  "flights": [
+    {"id": "AC4471", "flight": "AC 4471", "callsign": "ACA4471", "tail": "C-FITL", "origin": "JFK", "destination": "LAX", "departed": "07:40", "eta": "13:55"},
+    {"id": "AC2210", "flight": "AC 2210", "callsign": "ACA2210", "tail": "C-GKCB", "origin": "BOS", "destination": "ORD", "departed": "09:12", "eta": "14:42"},
+    {"id": "AC3306", "flight": "AC 3306", "callsign": "ACA3306", "tail": "C-FNND", "origin": "ATL", "destination": "DEN", "departed": "10:05", "eta": "12:48"},
+    {"id": "AC1187", "flight": "AC 1187", "callsign": "ACA1187", "tail": "C-GJZW", "origin": "SEA", "destination": "SFO", "departed": "11:20", "eta": "13:05"},
+    {"id": "DL512", "flight": "DL 512", "callsign": "DAL512", "tail": "N321DN", "origin": "LAX", "destination": "JFK", "departed": "08:15", "eta": "16:30"},
+    {"id": "UA640", "flight": "UA 640", "callsign": "UAL640", "tail": "N79123", "origin": "ORD", "destination": "DEN", "departed": "10:30", "eta": "12:25"},
+    {"id": "WN88", "flight": "WN 88", "callsign": "SWA88", "tail": "N8650F", "origin": "ATL", "destination": "BOS", "departed": "09:50", "eta": "12:35"},
+    {"id": "AA319", "flight": "AA 319", "callsign": "AAL319", "tail": "N819AA", "origin": "BOS", "destination": "ATL", "departed": "08:05", "eta": "10:55"}
+  ],
+  "periods": [
+    {
+      "period": 1,
+      "time": "12:00",
+      "positions": {
+        "AC4471": {"x": 71.2, "y": 45.2, "progress": 20, "altitude": 35000, "speed": 462, "heading": 258},
+        "AC2210": {"x": 78.4, "y": 30.0, "progress": 40, "altitude": 33000, "speed": 452, "heading": 268},
+        "AC3306": {"x": 52.7, "y": 55.0, "progress": 45, "altitude": 31000, "speed": 427, "heading": 287},
+        "AC1187": {"x": 9.1, "y": 28.8, "progress": 30, "altitude": null, "speed": 410, "heading": 186},
+        "DL512": {"x": 19.4, "y": 63.4, "progress": 10, "altitude": 37000, "speed": 468, "heading": 73},
+        "UA640": {"x": 54.4, "y": 34.6, "progress": 15, "altitude": 36000, "speed": 455, "heading": 258},
+        "WN88": {"x": 74.0, "y": 55.0, "progress": 25, "altitude": 34000, "speed": 444, "heading": 47},
+        "AA319": {"x": 81.2, "y": 44.2, "progress": 45, "altitude": 32000, "speed": 425, "heading": 215}
+      }
+    },
+    {
+      "period": 2,
+      "time": "12:15",
+      "positions": {
+        "AC4471": {"x": 62.3, "y": 48.3, "progress": 32, "altitude": 35000, "speed": 466, "heading": 258},
+        "AC2210": {"x": 74.7, "y": 30.6, "progress": 51, "altitude": 33000, "speed": 445, "heading": 268},
+        "AC3306": {"x": 49.0, "y": 52.8, "progress": 56, "altitude": 31000, "speed": 435, "heading": 287},
+        "AC1187": {"x": 8.7, "y": 32.4, "progress": 44, "altitude": null, "speed": 403, "heading": 186},
+        "DL512": {"x": 28.3, "y": 60.3, "progress": 22, "altitude": 37000, "speed": 470, "heading": 73},
+        "UA640": {"x": 50.6, "y": 36.4, "progress": 31, "altitude": 36000, "speed": 459, "heading": 258},
+        "WN88": {"x": 77.1, "y": 50.3, "progress": 38, "altitude": 34000, "speed": 437, "heading": 47},
+        "AA319": {"x": 78.3, "y": 48.5, "progress": 57, "altitude": 32000, "speed": 433, "heading": 215}
+      }
+    },
+    {
+      "period": 3,
+      "time": "12:30",
+      "positions": {
+        "AC4471": {"x": 53.4, "y": 51.4, "progress": 44, "altitude": 35000, "speed": 459, "heading": 258},
+        "AC2210": {"x": 70.9, "y": 31.1, "progress": 62, "altitude": 33000, "speed": 453, "heading": 268},
+        "AC3306": {"x": 45.2, "y": 50.6, "progress": 67, "altitude": 31000, "speed": 428, "heading": 287},
+        "AC1187": {"x": 8.3, "y": 36.1, "progress": 58, "altitude": null, "speed": 405, "heading": 186},
+        "DL512": {"x": 37.2, "y": 57.2, "progress": 34, "altitude": 37000, "speed": 474, "heading": 73},
+        "UA640": {"x": 46.7, "y": 38.2, "progress": 47, "altitude": 36000, "speed": 452, "heading": 258},
+        "WN88": {"x": 80.2, "y": 45.6, "progress": 51, "altitude": 34000, "speed": 445, "heading": 47},
+        "AA319": {"x": 75.4, "y": 52.8, "progress": 69, "altitude": 32000, "speed": 426, "heading": 215}
+      }
+    },
+    {
+      "period": 4,
+      "time": "12:45",
+      "positions": {
+        "AC4471": {"x": 44.6, "y": 54.6, "progress": 56, "altitude": 35000, "speed": 467, "heading": 258},
+        "AC2210": {"x": 67.2, "y": 31.6, "progress": 73, "altitude": 33000, "speed": 446, "heading": 268},
+        "AC3306": {"x": 41.5, "y": 48.4, "progress": 78, "altitude": 31000, "speed": 430, "heading": 287},
+        "AC1187": {"x": 7.8, "y": 39.7, "progress": 72, "altitude": null, "speed": 409, "heading": 186},
+        "DL512": {"x": 46.0, "y": 54.0, "progress": 46, "altitude": 37000, "speed": 467, "heading": 73},
+        "UA640": {"x": 42.9, "y": 39.9, "progress": 63, "altitude": 36000, "speed": 460, "heading": 258},
+        "WN88": {"x": 83.4, "y": 41.0, "progress": 64, "altitude": 34000, "speed": 438, "heading": 47},
+        "AA319": {"x": 72.6, "y": 57.2, "progress": 81, "altitude": 28000, "speed": 428, "heading": 215}
+      }
+    },
+    {
+      "period": 5,
+      "time": "13:00",
+      "positions": {
+        "AC4471": {"x": 35.7, "y": 57.7, "progress": 68, "altitude": 35000, "speed": 460, "heading": 258},
+        "AC2210": {"x": 63.4, "y": 32.2, "progress": 84, "altitude": 29000, "speed": 448, "heading": 268},
+        "AC3306": {"x": 37.7, "y": 46.2, "progress": 89, "altitude": 27000, "speed": 434, "heading": 287},
+        "AC1187": {"x": 7.4, "y": 43.4, "progress": 86, "altitude": null, "speed": 402, "heading": 186},
+        "DL512": {"x": 54.9, "y": 50.9, "progress": 58, "altitude": 37000, "speed": 475, "heading": 73},
+        "UA640": {"x": 39.0, "y": 41.7, "progress": 79, "altitude": 36000, "speed": 453, "heading": 258},
+        "WN88": {"x": 86.5, "y": 36.3, "progress": 77, "altitude": 34000, "speed": 440, "heading": 47},
+        "AA319": {"x": 69.7, "y": 61.5, "progress": 93, "altitude": 28000, "speed": 432, "heading": 215}
+      }
+    }
+  ]
+}
