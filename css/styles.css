@@ -21,7 +21,17 @@
    --line (border thickness), --radius, --sidebar-width, --header-height
    and --font (a monospace stack).
    Use them later with var(--ink).                                        */
-
+:root {
+  --ink: #000;
+  --paper: #fff;
+  --light: #e6e6e6;
+  --gray: #b5b5b5;
+  --line: 2px;
+  --radius: 20px;
+  --sidebar-width: 380px;
+  --header-height: 64px;
+  --font: "Courier New", Consolas, monospace;
+}
 
 /* ---------- STEP 2. Base ----------
    WHY: Browsers add their own default margins and sizes. A small reset
@@ -37,7 +47,43 @@
      so hidden elements stay hidden even when you give them a display value.
    - A .visually-hidden class that hides text visually but keeps it for
      screen readers (position absolute, 1px size, overflow hidden).        */
+* {
+  box-sizing: border-box;
+}
 
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+h1, h2, p, dl, dd, ul {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 /* ---------- STEP 3. Shared pieces ----------
    WHY: Buttons, fields and badges appear in many places. Style them once
@@ -47,14 +93,62 @@
    Add a :hover rule for .btn and a :disabled rule.
    Add .btn[aria-pressed="true"] to show the "on" state. This is a nice
    way to style state: the HTML says what is true, the CSS shows it.      */
+.btn,
+.field,
+.badge {
+  border: var(--line) solid var(--ink);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
 
+.btn {
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--light);
+}
+
+.btn:disabled {
+  color: var(--gray);
+  border-color: var(--gray);
+  cursor: not-allowed;
+}
+
+.btn[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
 
 /* ---------- STEP 4. Header ----------
    WHY: The header should sit on one row: title on the left, status on the right.
    YOUR CODE: .header with display: flex, justify-content: space-between,
    align-items: center, a fixed height from --header-height, and a bottom border.
    Style the status text as a pill (rounded border, bold).                */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--header-height);
+  padding: 0 28px;
+  background: var(--light);
+  border-bottom: var(--line) solid var(--ink);
+}
 
+.header h1 {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.status-pill {
+  border: var(--line) solid var(--ink);
+  border-radius: var(--radius);
+  padding: 4px 14px;
+  font-weight: 700;
+}
 
 /* ---------- STEP 5. Layout ----------
    WHY: The screen is two columns under the header: sidebar and map.
@@ -65,7 +159,17 @@
      so the sidebar and map sit side by side.
    - Add min-height: 0 where a child must scroll, otherwise flex children
      grow past the screen.                                                 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
 
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
 
 /* ---------- STEP 6. Sidebar: search, filters, list ----------
    WHY: Make the list easy to scan and easy to click.
@@ -77,14 +181,112 @@
    - .flight-row: full-width button, no default border, text-align: left,
      a hover background, and a different look for
      .flight-row[aria-pressed="true"] (the selected flight).                */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-width);
+  min-height: 0;
+  background: var(--light);
+  border-right: var(--line) solid var(--ink);
+}
 
+.search,
+.filters {
+  padding: 12px 16px 0;
+}
+
+.search .field {
+  width: 100%;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.filters .field {
+  flex: 1;
+}
+
+.flight-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: var(--line) solid var(--ink);
+}
+
+.flight-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: var(--line) solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.flight-row:hover {
+  background: var(--paper);
+}
+
+.flight-row[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.flight-name {
+  font-weight: 700;
+}
+
+#empty-message {
+  padding: 16px;
+}
 
 /* ---------- STEP 7. Detail panel ----------
    WHY: The panel shows a few labelled values. A grid keeps them tidy.
    YOUR CODE: Give the panel a top border and padding. Use display: grid
    with two columns on the <dl>, small grey labels (dt) and bold
    values (dd).                                                            */
+.detail {
+  padding: 16px;
+  background: var(--paper);
+  border-top: var(--line) solid var(--ink);
+}
 
+.detail__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.detail h2 {
+  font-size: 18px;
+}
+
+#detail-close {
+  padding: 0 10px;
+  line-height: 1.4;
+}
+
+.detail dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+}
+
+.detail dt {
+  font-size: 13px;
+  color: #555;
+}
+
+.detail dd {
+  font-weight: 700;
+}
 
 /* ---------- STEP 8. Map ----------
    WHY: The map is a positioned surface. Markers and airports are placed on
@@ -99,7 +301,48 @@
    - Use transform: translate(-50%, -50%) so the point you choose is the
      CENTER of the dot, not its top-left corner.
    - .marker[aria-pressed="true"]: a clear "selected" look.                */
+.map {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(#ececec 1px, transparent 1px),
+    linear-gradient(90deg, #ececec 1px, transparent 1px);
+  background-size: 83px 83px;
+}
 
+.count-badge {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  font-weight: 700;
+}
+
+.marker,
+.airport {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  transform: translate(-50%, -50%);
+}
+
+.marker {
+  font-size: 14px;
+  background: var(--gray);
+}
+
+.marker[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+  outline: var(--line) solid var(--ink);
+  outline-offset: 3px;
+}
+
+.airport {
+  font-size: 14px;
+  font-weight: 700;
+}
 
 /* ---------- STEP 9. Small screens (do this last) ----------
    WHY: Not everyone uses a wide screen. A media query changes the layout
