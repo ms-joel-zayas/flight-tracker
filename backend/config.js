@@ -46,6 +46,13 @@ export function loadConfig(environment = process.env) {
         || "uxbridge-flight-tracker/1.0 (+https://github.com/ms-joel-zayas/flight-tracker)",
       routeCacheMs: 6 * 60 * 60 * 1000,
     }),
+    adsbDb: Object.freeze({
+      baseUrl: environment.ADSBDB_BASE_URL || "https://api.adsbdb.com",
+      userAgent: environment.ADSBDB_USER_AGENT
+        || environment.ADSBLOL_USER_AGENT
+        || "uxbridge-flight-tracker/1.0 (+https://github.com/ms-joel-zayas/flight-tracker)",
+      maxConcurrency: numberSetting(environment, "ADSBDB_MAX_CONCURRENCY", 4, { min: 1, max: 10 }),
+    }),
     airLabs: Object.freeze({
       baseUrl: environment.AIRLABS_BASE_URL || "https://airlabs.co/api/v9",
       apiKey: environment.AIRLABS_API_KEY || "",
@@ -60,4 +67,3 @@ export function loadConfig(environment = process.env) {
     ),
   });
 }
-

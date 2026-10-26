@@ -1,136 +1,105 @@
-# Flight Tracker — MVP (Week 8: data from `data.json`)
+# Flight Tracker
 
-A black-and-white working version of the approved Flight Tracker design, built with only **HTML, CSS and JavaScript**. No build step, no libraries. As of Week 8 the flights, airports and map points live in **`data.json`** instead of being typed into the HTML, and a **replay** steps through up to five time periods, one every 5 seconds.
-
-| Language | Job | File |
-|---|---|---|
-| HTML | Structure: what is on the screen | `index.html` |
-| CSS | Presentation: how it looks (black-and-white wireframe) | `css/styles.css` |
-| JavaScript | Behavior: loads the data, builds the page from it, reacts to clicks | `js/app.js` |
-| JSON | Data: airports, flights and the map point of every flight in each period | `data.json` |
+A black-and-white flight tracker built with HTML, CSS, vanilla JavaScript, Express, and SQLite. ADSB.lol supplies free live aircraft data, while route lookup prefers ADSB.lol and automatically falls back to the free, no-key ADSBDB API. The backend derives progress, departure observations, and ETA without requiring a schedule provider.
 
 ## Run it
 
-The page loads `data.json` with `fetch()`, and browsers block `fetch()` for files opened by double-clicking (`file://`). Run a small local server instead:
+Requirements: Node.js 20 or newer.
 
-- **VS Code:** right-click `index.html` and choose **Open with Live Server** (the Live Server extension is recommended in `.vscode/extensions.json`), or
-- **Terminal:** run this in the project folder and open http://localhost:8000:
-
-```
-python3 -m http.server 8000
-```
-
-If you open the page by double-clicking, the app shows a "Could not load data.json" message that says the same thing.
-
-## What you can do in the page
-
-| Try this | What happens | Requirement |
-|---|---|---|
-| Click a flight in the list, or an aircraft on the map | Detail panel opens with departure, destination, progress bar and ETA; the selected flight's solid trail and dashed projected path appear | REQ-02, REQ-06, REQ-08 |
-| Click the **Chart** tab in the detail panel | Placeholder box for the altitude-over-time chart | Week 6 placeholder (visualization) |
-| Click **×** in the detail panel, or press Esc | Panel closes and the selection clears | REQ-08 |
-| Click the **‹** handle between panel and map | Left panel slides away; click **›** to bring it back | REQ-08 |
-| Type in **Search flights** (try `ACA2210`, `C-GKCB`, `ac 4471`); press Enter when one flight is left | List and map narrow to matches; Enter opens the flight | REQ-04 |
-| Pick an **Origin** or **Dest** airport | List filters; non-matching aircraft are dimmed on the map; the count badge updates (try JFK, then BOS as dest to see the empty state) | REQ-05 |
-| **Demo ▾ → Trigger emergency** | Alert banner appears; AC 3306 gets a solid marker with a pulsing outline. **View** opens that flight | REQ-09 |
-| **Demo ▾ → Simulate stale data** | Status pill changes to a dashed "DATA STALE" state | REQ-03 |
-| Click **REPLAY**, then **▶** | Replay starts at period 1. Every 5 seconds the next period appears: each aircraft jumps to a new point on its route toward its destination, its trail grows, and the detail panel updates. It stops after the last period; ▶ again restarts it | REQ-07 |
-| In replay, use **◀◀ / ▶▶**, drag the **slider**, or pick **1× / 2× / 5× / 10×** | Step one period back or forward, jump to any period, or change the wait (5 s at 1×, 2.5 s at 2×, 0.5 s at 10×). The pill shows `REPLAY · OCT 02 · 12:15 · 2×` | REQ-07 |
-| Click **● LIVE** | Replay stops. Live is **not functional yet**: the pill says `LIVE · NO FEED YET` and the map shows the last saved period. It will switch to a live API later | REQ-03, REQ-07 |
-
-The **Demo** menu exists only because there is no live data yet. It stands in for events that a live feed will trigger later. Which flight gets the emergency is set in `data.json` (`meta.alertFlightId`).
-
-## The data: `data.json`
-
-`data.json` sits in the project root and has four parts:
-
-```
-{
-  "meta":     { replayDate, periodSeconds, alertFlightId, defaultFlightId, notes },
-  "airports": [ { code, name, x, y } ],
-  "flights":  [ { id, flight, callsign, tail, origin, destination, departed, eta } ],
-  "periods":  [ { period, time, positions: { "<flight id>": { x, y, progress, altitude, speed, heading } } } ]
-}
+```sh
+npm install
+cp .env.example .env
+npm start
 ```
 
-| Part | What it holds |
+Open <http://localhost:3000>. Do not open `index.html` directly or use a separate static server unless its origin is listed in `CORS_ORIGINS`.
+
+No API key is required for the default data path. With an empty `AIRLABS_API_KEY`, the backend calculates ETA from remaining great-circle distance and the five most recent valid ground-speed samples. It reports `Departed` only after observing a ground-to-air transition; otherwise an airborne aircraft is labeled `First observed`. AirLabs remains an optional override if access becomes available later.
+
+ADSB.lol route results are used when available. Missing or empty route results are resolved by ADSBDB per callsign with at most four concurrent requests, geographically checked against the aircraft's current position, then cached for six hours. Implausible or unknown routes remain unavailable instead of producing a misleading ETA. General aviation, private, and unusual callsigns may still have no published route.
+
+## Browser data flow
+
+| API | Browser behavior |
 |---|---|
-| `meta` | Settings for the app. `periodSeconds` is how long one period stays on screen at 1× (5). `alertFlightId` is the flight used by the emergency demo. `defaultFlightId` is the flight open at start-up. |
-| `airports` | The 8 airports. `x` and `y` are **percentages of the map** (0 to 100, from the top-left corner), so they line up with the markers and lines. |
-| `flights` | Facts about a flight that do not change: flight number, callsign, tail number, origin, destination, departed and ETA times. |
-| `periods` | Up to **5 snapshots** in time. Each one lists, for every flight (looked up by its `id`), where it is at that moment. |
+| `GET /api/aircraft` | Loads and polls live aircraft, derived flight data, status, map markers, filters, and emergencies |
+| `GET /api/aircraft/:id` | Loads normalized selected-aircraft details and optional schedule-provider enrichment |
+| `GET /api/aircraft/:id/history` | Draws the selected aircraft trail and altitude chart |
+| `GET /api/replay?from=...&to=...` | Loads the most recent hour into the replay controls |
+| `GET /api/health` | Provides diagnostics; the UI normally uses metadata included with `/api/aircraft` |
 
-How the periods work:
+The frontend uses only normalized fields such as `latitude`, `longitude`, `altitudeFeet`, `speedKnots`, and `tailNumber`. It never calls ADSB.lol or an optional schedule provider directly.
 
-- A period is one moment in time. `positions` is an **object keyed by flight id**, so the app can write `period.positions["AC2210"]` instead of searching a list.
-- Each flight's `x` and `y` in each period is a point on the straight line from its **origin airport to its destination airport**. `progress` says how far along that line it is (0 to 100). Moving to the next period moves the flight farther toward its destination.
-- `altitude` is `null` when a flight is not reporting one (AC 1187). The page shows **Not available**.
-- `departed` and `eta` are fixed placeholder times. They are not tied to the period clock (`12:00`, `12:15`, and so on).
-- The trail on the map is built from the periods already shown: origin airport, then every point so far. The dashed line is the current point to the destination airport.
+## Derived flight data
 
-**Adding or changing data:** edit `data.json` only. Add a flight to `flights` and give it a position in **every** period; add a period (up to five) to `periods`. On load, the app checks that every flight has a position in every period and that every flight uses an airport from `airports`. If something is missing, it tells you what on the page and in the browser console.
+- `progressPercent` compares remaining great-circle distance with the origin-to-destination route distance.
+- `remainingDistanceNm` is the great-circle distance from the current position to the destination airport.
+- `eta` uses remaining distance and an average of the five most recent airborne speeds. `etaSource: "calculated"` distinguishes it from a published airline ETA.
+- `departureTimeSource: "observed"` means the running server saw a ground-to-air transition.
+- `departureTimeSource: "first-observed"` means the aircraft was already airborne when tracking began. The UI labels this honestly as `First observed`.
 
-**Live later:** a live API will return one record per flight in this same shape (`x`/`y` will become `lat`/`lon` when the real map arrives). The live feed replaces the saved periods; the replay will then play back recorded snapshots.
+These values are included in live snapshots and stored with every SQLite replay position.
 
-## Folder layout
+## Frontend behavior
 
+- Live mode refreshes at `meta.refreshIntervalSeconds`, pauses polling work while the page is hidden, and keeps the last good snapshot visible during temporary failures.
+- The status pill reflects `live`, `starting`, and `degraded` backend states.
+- Search matches flight number, callsign, tail number, and aircraft ID. Airport filters are derived from resolved routes.
+- Selecting an aircraft loads normalized details and one hour of history. Slow responses are cancelled when another aircraft is selected.
+- `ETA · CALCULATED`, `Departed`, and `First observed` communicate the provenance of displayed times.
+- The altitude tab graphs real history when at least two altitude samples exist.
+- Emergency broadcasts and standard emergency squawks drive marker, row, and banner alerts.
+- Replay loads recorded SQLite frames for the last hour and supports 1×, 2×, 5×, and 10× speeds.
+
+## Map projection
+
+The map remains a lightweight SVG wireframe. `js/api.js` projects latitude/longitude into its 0–100 coordinate space using the tracking center and radius returned by the backend. Route airports inside the region are shown directly; projected paths toward destinations outside the region stop at the map edge.
+
+## Configuration
+
+| Setting | Default | Purpose |
+|---|---:|---|
+| `PORT` | `3000` | Express and frontend port |
+| `TRACKING_LAT`, `TRACKING_LON` | Uxbridge, MA | Tracking region center |
+| `TRACKING_RADIUS_NM` | `25` | ADSB.lol radius and frontend map bounds |
+| `POLL_INTERVAL_MS` | `30000` | Backend provider polling interval |
+| `STALE_AFTER_SECONDS` | `60` | Age at which the feed is degraded |
+| `HISTORY_RETENTION_HOURS` | `24` | SQLite position retention |
+| `ADSBDB_BASE_URL` | `https://api.adsbdb.com` | Free route fallback service |
+| `ADSBDB_MAX_CONCURRENCY` | `4` | Maximum simultaneous fallback lookups on a cache miss |
+| `AIRLABS_API_KEY` | empty | Optional schedule-provider override; not required for ETA or progress |
+
+Never put provider credentials in frontend files or commit `.env`.
+
+## Project layout
+
+```text
+backend/
+  aircraft.js            Normalization and derived flight calculations
+  app.js                 Express routes and static frontend
+  collector.js           Provider polling, route caching, and flight sessions
+  database.js            SQLite history, migrations, and provider usage
+  providers/             ADSB.lol, ADSBDB fallback, and optional AirLabs clients
+css/styles.css            Wireframe styles
+js/api.js                 Browser API client and map/data helpers
+js/app.js                 UI state, rendering, polling, selection, and replay
+test/                     Backend and frontend-helper tests
+index.html                Frontend structure
+data.json                 Legacy demo fixture; no longer used at runtime
 ```
-flight-tracker/
-  index.html        markup for the whole screen (no flight data inside)
-  data.json         airports, flights and the periods (map points over time)
-  css/
-    styles.css      one stylesheet, sections numbered 1-12
-  js/
-    app.js          loads data.json, builds the page, state, update functions, timer, events
-  README.md         this file
+
+## Tests
+
+```sh
+npm test
 ```
 
-## How the JavaScript is organized
+Tests cover provider normalization, derived ETA/progress, departure transitions, SQLite migration and persistence, API routes, and frontend projection helpers.
 
-`js/app.js` follows one pattern that carries straight over to React:
+## Current limitations
 
-1. **Load**: `loadData()` fetches `data.json`; `checkData()` makes sure it has the shape the app expects.
-2. **State**: one `state` object remembers what is going on (the data, which period is showing, selected flight, search text, alert on, and so on).
-3. **Build**: `buildFlightList()`, `buildFilters()`, `buildMap()` and `buildReplayBar()` create the rows, airports, markers and lines from the arrays in the data. They run once.
-4. **Update functions**: small functions such as `showPeriod()`, `renderMap()`, `selectFlight()`, `renderFlights()` and `setMode()` change the page to match the state.
-5. **Period timer**: `scheduleNextPeriod()` uses `setTimeout` to wait `periodSeconds` (divided by the speed), call `showPeriod()` for the next period, and then wait again.
-6. **Event listeners**: `wireEvents()` connects each click or keystroke to one of those functions.
-
-Look-up tables (`flightById`, `airportByCode`, `markerById`, ...) turn an id into its record or element in one step.
-
-## Decisions made so far
-
-- **Black and white only.** REQ-09 says aircraft turn red when there is an emergency. In this wireframe the alert flight is shown as a solid black marker with a pulsing outline and a black banner with a ⚠ icon. Red is added when real styling starts.
-- **Alerts are never hidden by filters.** If an emergency is active, that flight stays visible in the list and on the map whatever the search or filters say. This was our call; REQ-05 does not say either way.
-- **Map is a placeholder.** The grid, airport squares and paths are schematic and not to scale. Airport positions loosely follow US geography.
-- **Dim on the map, filter the list.** This is the proposed answer to the students' REQ-05 question and is still to be confirmed in review.
-- **Detail panel has two tabs.** Details come from the finalized wireframe. The Chart tab is a placeholder added for the visualization the Week 6 plan calls for; it was not on the Week 5 wireframe.
-- **Missing values** show "Not available" (see AC 1187's altitude) instead of a blank.
-- **Live is a placeholder.** There is no live API yet, so LIVE shows the last saved period and the pill says `LIVE · NO FEED YET`. Only REPLAY moves aircraft.
-- **One day of replay data.** The date drop-down lists only the date in `data.json` (`meta.replayDate`). Other days arrive with real history.
-- **Placeholder numbers.** Positions, speeds and altitudes are made up to show movement, not real flights.
-- **Accessibility basics:** real `<button>` elements, labels on inputs, keyboard focus outlines, `aria-pressed` and `aria-expanded` states, and reduced-motion support for the pulsing outline.
-
-## Moving to React / Next.js later
-
-Each block in `index.html` carries a `data-component="..."` name. These are the pieces that become React components.
-
-| In this project | Becomes | Notes |
-|---|---|---|
-| `Header`, `StatusPill`, `DemoControls` | `Header.jsx` and children | The demo menu can be deleted once real data exists. |
-| `Sidebar` → `SearchBox`, `FilterBar`, `FlightList` (rows) | `FlightList.jsx` and children | Rows are already generated from an array (`flights`). |
-| `DetailPanel` | `DetailPanel.jsx` | Matches the component of the same name in `ARCHITECTURE.md`. |
-| Chart placeholder (`AltitudeChart`) | `AltitudeChart.jsx` | Placeholder for the recharts chart. |
-| `MapView` + `TrafficSummary` | `MapView.jsx` + `TrafficSummary.jsx` | The static grid is replaced by react-leaflet. |
-| Markers, `FlightPath`, airports | children of `MapView` | Paths use % coordinates now; the map library will use lat/lon. |
-| `AlertBanner` | `AlertBanner.jsx` | |
-| `ReplayBar` | `ReplayBar.jsx` | |
-| `state` object in `app.js` | `useState` hooks lifted to `app/page.js` | Same shape. |
-| `scheduleNextPeriod()` timer | A `useEffect` with `setTimeout` or `setInterval` | Same idea: wait, then show the next period. |
-| `flights`, `airports`, `periods` in `data.json` | An `aircraft` array from `useAircraftData()` (mock data first, then the live API) | |
-
-**One gap to resolve before the move:** the shared aircraft record in `ARCHITECTURE.md` has callsign, position, altitude, speed, heading and history. The student requirements (REQ-02, REQ-05, REQ-08) also need origin, destination and ETA, and REQ-04 needs tail number. `data.json` already carries those fields (in `flights`), and `periods` plays the role of `history`. The record shape in `ARCHITECTURE.md` will need to be updated to match, or the requirements will need to change.
-
-## Not included on purpose
-
-The frontend does not yet consume the live backend, and it still has no real map or chart. Those integrations remain separate student-facing steps.
+- The map is a projected wireframe rather than a tiled geographic map.
+- Origin, destination, progress, and ETA depend on ADSB.lol or ADSBDB resolving route waypoints.
+- Calculated ETA does not account for winds, routing changes, holding, or approach delays.
+- Departure observation state starts with the server process; restarting midflight produces `First observed`, not an invented departure time.
+- Replay currently requests the most recent hour even though SQLite retains 24 hours by default.

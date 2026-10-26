@@ -81,7 +81,8 @@ export class AirLabsEnricher {
       destination: flight.destination || aircraft.destination,
       eta: flight.eta || aircraft.eta,
       etaSource: flight.eta ? "airlabs" : aircraft.etaSource,
-      departureTime: flight.departureTime,
+      departureTime: flight.departureTime || aircraft.departureTime,
+      departureTimeSource: flight.departureTime ? "airlabs" : aircraft.departureTimeSource,
       status: flight.status || aircraft.status,
       enrichment: {
         airLabs: "available",
@@ -91,4 +92,3 @@ export class AirLabsEnricher {
     };
   }
 }
-

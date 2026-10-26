@@ -1,4 +1,7 @@
-import { applyRoute, normalizeAdsbAircraft } from "./aircraft.js";
+import { applyDerivedFlightData, applyRoute, normalizeAdsbAircraft } from "./aircraft.js";
+
+const SESSION_EXPIRY_MS = 30 * 60 * 1000;
+const RECENT_SPEED_SAMPLES = 5;
 
 function isoOrNull(timestamp) {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
@@ -13,6 +16,7 @@ export class FlightCollector {
     this.now = now;
     this.aircraft = [];
     this.routeCache = new Map();
+    this.flightSessions = new Map();
     this.lastSuccessfulFetchMs = null;
     this.providerTimestampMs = null;
     this.lastError = null;
@@ -50,6 +54,7 @@ export class FlightCollector {
         .filter(Boolean);
 
       aircraft = await this.addRoutes(aircraft, capturedAtMs);
+      aircraft = this.addObservedFlightData(aircraft, capturedAtMs);
       this.historyStore.recordSnapshot(aircraft, capturedAtMs);
       const retentionMs = this.config.historyRetentionHours * 60 * 60 * 1000;
       this.historyStore.removePositionsBefore(capturedAtMs - retentionMs);
@@ -95,6 +100,56 @@ export class FlightCollector {
     ));
   }
 
+  addObservedFlightData(aircraft, capturedAtMs) {
+    const activeIds = new Set(aircraft.map((item) => item.id));
+    const enriched = aircraft.map((item) => {
+      let session = this.flightSessions.get(item.id);
+      const callsignChanged = session?.callsign && item.callsign && session.callsign !== item.callsign;
+      const sessionExpired = session && capturedAtMs - session.lastSeenAtMs > SESSION_EXPIRY_MS;
+      if (!session || callsignChanged || sessionExpired) {
+        session = {
+          callsign: item.callsign,
+          firstObservedAt: item.observedAt,
+          departureTime: item.onGround ? null : item.observedAt,
+          departureTimeSource: item.onGround ? null : "first-observed",
+          wasOnGround: item.onGround,
+          lastSeenAtMs: capturedAtMs,
+          recentSpeeds: [],
+        };
+        this.flightSessions.set(item.id, session);
+      } else {
+        if (!session.departureTime && session.wasOnGround && !item.onGround) {
+          session.departureTime = item.observedAt;
+          session.departureTimeSource = "observed";
+        }
+        session.callsign = item.callsign || session.callsign;
+        session.wasOnGround = item.onGround;
+        session.lastSeenAtMs = capturedAtMs;
+      }
+
+      if (!item.onGround && Number.isFinite(item.speedKnots) && item.speedKnots >= 30) {
+        session.recentSpeeds.push(item.speedKnots);
+        session.recentSpeeds = session.recentSpeeds.slice(-RECENT_SPEED_SAMPLES);
+      }
+      const recentSpeedKnots = session.recentSpeeds.length
+        ? session.recentSpeeds.reduce((sum, speed) => sum + speed, 0) / session.recentSpeeds.length
+        : item.speedKnots;
+      return applyDerivedFlightData({
+        ...item,
+        firstObservedAt: session.firstObservedAt,
+        departureTime: session.departureTime,
+        departureTimeSource: session.departureTimeSource,
+      }, capturedAtMs, recentSpeedKnots);
+    });
+
+    for (const [id, session] of this.flightSessions) {
+      if (!activeIds.has(id) && capturedAtMs - session.lastSeenAtMs > SESSION_EXPIRY_MS) {
+        this.flightSessions.delete(id);
+      }
+    }
+    return enriched;
+  }
+
   getSnapshot() {
     const nowMs = this.now();
     const updateAgeSeconds = this.lastSuccessfulFetchMs === null
@@ -134,4 +189,3 @@ export class FlightCollector {
     ) || null;
   }
 }
-

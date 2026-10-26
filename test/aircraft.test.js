@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyDerivedFlightData,
   applyRoute,
   detectEmergency,
+  greatCircleDistanceNm,
   normalizeAdsbAircraft,
 } from "../backend/aircraft.js";
 
@@ -57,3 +59,49 @@ test("adds a cached route without mutating the aircraft", () => {
   assert.equal(result.destination, "ORD");
 });
 
+test("calculates route progress, remaining distance, and ETA", () => {
+  const capturedAt = Date.parse("2026-10-14T12:00:00.000Z");
+  const aircraft = applyRoute({
+    latitude: 42.5,
+    longitude: -71,
+    speedKnots: 120,
+    onGround: false,
+  }, {
+    origin: "AAA",
+    destination: "BBB",
+    waypoints: [
+      { code: "AAA", latitude: 42, longitude: -71 },
+      { code: "BBB", latitude: 43, longitude: -71 },
+    ],
+  });
+
+  const result = applyDerivedFlightData(aircraft, capturedAt);
+  assert.equal(result.progressPercent, 50);
+  assert.ok(result.remainingDistanceNm > 29 && result.remainingDistanceNm < 31);
+  assert.equal(result.etaSource, "calculated");
+  const etaMinutes = (Date.parse(result.eta) - capturedAt) / 60_000;
+  assert.ok(etaMinutes > 14 && etaMinutes < 16);
+  assert.ok(greatCircleDistanceNm(
+    { latitude: 42, longitude: -71 },
+    { latitude: 43, longitude: -71 },
+  ) > 59);
+});
+
+test("does not calculate an ETA without a usable airborne speed", () => {
+  const result = applyDerivedFlightData({
+    latitude: 42.5,
+    longitude: -71,
+    speedKnots: 0,
+    onGround: true,
+    origin: "AAA",
+    destination: "BBB",
+    route: {
+      waypoints: [
+        { code: "AAA", latitude: 42, longitude: -71 },
+        { code: "BBB", latitude: 43, longitude: -71 },
+      ],
+    },
+  });
+  assert.equal(result.eta, null);
+  assert.equal(result.etaSource, null);
+});

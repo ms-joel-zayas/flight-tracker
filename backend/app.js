@@ -130,6 +130,7 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
       warning: meta.warning,
       providers: {
         adsbLol: { enabled: true },
+        adsbDb: { enabled: true, purpose: "route fallback" },
         airLabs: { enabled: airLabsEnricher.enabled },
       },
       historyRetentionHours: config.historyRetentionHours,
@@ -154,4 +155,3 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
 
   return app;
 }
-

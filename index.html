@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flight Tracker — MVP (data from data.json)</title>
+  <title>Flight Tracker — Live API</title>
   <!-- CSS = presentation. Everything visual lives in this one file. -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
 <!--
-  FLIGHT TRACKER — MVP (Week 8: data comes from data.json)
+  FLIGHT TRACKER — LIVE API FRONTEND
   HTML = structure. This file is only the markup: what is on the screen.
   The data-component="…" attributes name each block. They are the pieces
   that become React components when this project moves to Next.js.
-  Flights, airports and map points are NOT written here any more. js/app.js
-  loads data.json and builds the flight rows, airports, markers and paths.
+  Flights, airports and map points are NOT written here. js/app.js loads the
+  backend API and builds the flight rows, airports, markers and paths.
 -->
 <div class="app" id="app" data-panel="open">
 
@@ -29,16 +29,6 @@
         <span class="status-pill__dot" aria-hidden="true"></span>
         <span id="status-text">LOADING DATA…</span>
       </p>
-
-      <!-- Demo controls: lets us show states that real data would normally trigger -->
-      <div class="demo" data-component="DemoControls">
-        <button class="btn" type="button" id="demo-toggle" aria-expanded="false" aria-controls="demo-panel">Demo ▾</button>
-        <div class="demo__panel" id="demo-panel" hidden>
-          <p class="demo__note">Demo controls — not part of the product</p>
-          <button class="btn btn--block" type="button" id="demo-alert" aria-pressed="false">Trigger emergency</button>
-          <button class="btn btn--block" type="button" id="demo-stale" aria-pressed="false">Simulate stale data</button>
-        </div>
-      </div>
 
       <span class="badge">v1.0</span>
     </div>
@@ -61,21 +51,21 @@
           <span class="visually-hidden">Origin airport</span>
           <select class="field" id="filter-origin">
             <option value="">Origin ▾</option>
-            <!-- airports are added by js/app.js from data.json -->
+            <!-- route airports are added by js/app.js from the live API -->
           </select>
         </label>
         <label class="filters__item">
           <span class="visually-hidden">Destination airport</span>
           <select class="field" id="filter-dest">
             <option value="">Dest ▾</option>
-            <!-- airports are added by js/app.js from data.json -->
+            <!-- route airports are added by js/app.js from the live API -->
           </select>
         </label>
       </div>
 
       <!-- Flight list (component: FlightList, one FlightRow per flight) -->
       <ul class="flight-list" id="flight-list" data-component="FlightList">
-        <!-- Rows are built by js/app.js from the "flights" array in data.json -->
+        <!-- Rows are built by js/app.js from GET /api/aircraft -->
       </ul>
       <p class="flight-list__empty" id="empty-note" hidden>No flights match your search or filters.</p>
 
@@ -101,8 +91,8 @@
             <strong class="route__code" id="detail-dest">ORD</strong>
           </div>
           <div class="times">
-            <span>Departed <span id="detail-departed">09:12</span></span>
-            <strong>ETA <span id="detail-eta">14:42</span></strong>
+            <span><span id="detail-departure-label">Departed</span> <span id="detail-departed">09:12</span></span>
+            <strong><span id="detail-eta-label">ETA</span> <span id="detail-eta">14:42</span></strong>
           </div>
           <dl class="fields">
             <div><dt>Callsign</dt><dd id="detail-callsign">ACA2210</dd></div>
@@ -110,6 +100,7 @@
             <div><dt>Speed</dt><dd id="detail-speed">448 kt</dd></div>
             <div><dt>Heading</dt><dd id="detail-heading">—</dd></div>
           </dl>
+          <p class="detail__status" id="detail-status" role="status"></p>
         </div>
 
         <!-- Tab 2: chart placeholder (component later: AltitudeChart) -->
@@ -117,9 +108,9 @@
           <div class="chart-placeholder" data-component="AltitudeChart">
             <p class="chart-placeholder__title">ALTITUDE OVER TIME</p>
             <svg viewBox="0 0 200 70" preserveAspectRatio="none" aria-hidden="true">
-              <polyline points="4,56 30,44 52,46 80,30 106,34 132,22 160,26 196,16" />
+              <polyline id="altitude-chart-line" points="" />
             </svg>
-            <p class="chart-placeholder__note">Placeholder — the real chart arrives in a later week</p>
+            <p class="chart-placeholder__note" id="altitude-chart-note">Select an aircraft to load altitude history.</p>
           </div>
         </div>
       </section>
@@ -134,9 +125,9 @@
       <!-- Aircraft count (component: TrafficSummary) -->
       <p class="badge badge--count" id="aircraft-count" data-component="TrafficSummary">0 AIRCRAFT</p>
 
-      <!-- Shown only if data.json could not be loaded -->
+      <!-- Shown when the backend API cannot be reached -->
       <div class="load-error" id="load-error" role="alert" hidden>
-        <p class="load-error__title">Could not load data.json</p>
+        <p class="load-error__title">Could not load live aircraft</p>
         <p class="load-error__text" id="load-error-text"></p>
       </div>
 
@@ -152,7 +143,7 @@
         <!-- One <g class="path"> per flight is built by js/app.js: trail (where it has been) and projected line (where it is going) -->
       </svg>
 
-      <!-- Airports and aircraft markers are built by js/app.js from data.json (airports[] and flights[]) -->
+      <!-- Airports and aircraft markers are built from normalized backend API records -->
       <div class="map__layer" id="map-layer"></div>
 
       <p class="map__caption">MAP PLACEHOLDER · schematic, not to scale</p>
@@ -166,7 +157,7 @@
             <label>
               <span class="visually-hidden">Replay date</span>
               <select class="field field--small" id="replay-date" disabled>
-                <!-- options are added by js/app.js from data.json -->
+                <!-- recorded dates are added after GET /api/replay -->
               </select>
             </label>
 
@@ -198,7 +189,6 @@
   </div>
 </div>
 
-<!-- JavaScript = behavior. Plain script (no modules). It fetches data.json, so open the page through a local server (see README). -->
-<script src="js/app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

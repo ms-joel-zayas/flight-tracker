@@ -309,6 +309,7 @@ ul { list-style: none; }
 .fields dt { font-size: 12px; color: var(--gray); }
 .fields dd { font-weight: bold; }
 .fields dd.is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
+.detail__status { min-height: 1.2em; margin: 12px 0 0; color: var(--gray); font-size: 11px; }
 
 .chart-placeholder {
   display: flex;

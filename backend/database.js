@@ -2,6 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
+function isoOrNull(timestamp) {
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function timestampOrNull(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function rowToPoint(row) {
   return {
     id: row.aircraft_id,
@@ -16,6 +25,14 @@ function rowToPoint(row) {
     headingDegrees: row.heading_degrees,
     origin: row.origin,
     destination: row.destination,
+    onGround: row.on_ground === null ? null : Boolean(row.on_ground),
+    firstObservedAt: isoOrNull(row.first_observed_at),
+    departureTime: isoOrNull(row.departure_time),
+    departureTimeSource: row.departure_time_source,
+    eta: isoOrNull(row.eta),
+    etaSource: row.eta_source,
+    progressPercent: row.progress_percent,
+    remainingDistanceNm: row.remaining_distance_nm,
     emergencyActive: Boolean(row.emergency_active),
   };
 }
@@ -27,6 +44,7 @@ export class HistoryStore {
     this.database.pragma("journal_mode = WAL");
     this.database.pragma("synchronous = NORMAL");
     this.createSchema();
+    this.migrateSchema();
     this.prepareStatements();
   }
 
@@ -45,6 +63,14 @@ export class HistoryStore {
         heading_degrees REAL,
         origin TEXT,
         destination TEXT,
+        on_ground INTEGER,
+        first_observed_at INTEGER,
+        departure_time INTEGER,
+        departure_time_source TEXT,
+        eta INTEGER,
+        eta_source TEXT,
+        progress_percent INTEGER,
+        remaining_distance_nm REAL,
         emergency_active INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (aircraft_id, captured_at)
       );
@@ -61,16 +87,39 @@ export class HistoryStore {
     `);
   }
 
+  migrateSchema() {
+    const existing = new Set(
+      this.database.prepare("PRAGMA table_info(positions)").all().map((column) => column.name),
+    );
+    const additions = {
+      on_ground: "INTEGER",
+      first_observed_at: "INTEGER",
+      departure_time: "INTEGER",
+      departure_time_source: "TEXT",
+      eta: "INTEGER",
+      eta_source: "TEXT",
+      progress_percent: "INTEGER",
+      remaining_distance_nm: "REAL",
+    };
+    for (const [name, type] of Object.entries(additions)) {
+      if (!existing.has(name)) this.database.exec(`ALTER TABLE positions ADD COLUMN ${name} ${type}`);
+    }
+  }
+
   prepareStatements() {
     this.insertPosition = this.database.prepare(`
       INSERT OR REPLACE INTO positions (
         aircraft_id, captured_at, observed_at, callsign, tail_number,
         latitude, longitude, altitude_feet, speed_knots, heading_degrees,
-        origin, destination, emergency_active
+        origin, destination, on_ground, first_observed_at, departure_time,
+        departure_time_source, eta, eta_source, progress_percent,
+        remaining_distance_nm, emergency_active
       ) VALUES (
         @aircraft_id, @captured_at, @observed_at, @callsign, @tail_number,
         @latitude, @longitude, @altitude_feet, @speed_knots, @heading_degrees,
-        @origin, @destination, @emergency_active
+        @origin, @destination, @on_ground, @first_observed_at, @departure_time,
+        @departure_time_source, @eta, @eta_source, @progress_percent,
+        @remaining_distance_nm, @emergency_active
       )
     `);
     this.insertSnapshot = this.database.transaction((aircraft, capturedAtMs) => {
@@ -88,6 +137,14 @@ export class HistoryStore {
           heading_degrees: item.headingDegrees,
           origin: item.origin,
           destination: item.destination,
+          on_ground: item.onGround === null || item.onGround === undefined ? null : item.onGround ? 1 : 0,
+          first_observed_at: timestampOrNull(item.firstObservedAt),
+          departure_time: timestampOrNull(item.departureTime),
+          departure_time_source: item.departureTimeSource,
+          eta: timestampOrNull(item.eta),
+          eta_source: item.etaSource,
+          progress_percent: item.progressPercent,
+          remaining_distance_nm: item.remainingDistanceNm,
           emergency_active: item.emergency ? 1 : 0,
         });
       }
@@ -157,4 +214,3 @@ export class HistoryStore {
     this.database.close();
   }
 }
-

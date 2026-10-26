@@ -15,6 +15,7 @@ function coordinate(value) {
 
 export function normalizeAdsbLolRoute(rawRoute) {
   if (!rawRoute || typeof rawRoute !== "object") return null;
+  if (rawRoute.plausible === false) return null;
 
   const callsign = normalizedCallsign(rawRoute.callsign);
   const airports = Array.isArray(rawRoute._airports)
@@ -48,10 +49,17 @@ export function normalizeAdsbLolRoute(rawRoute) {
 }
 
 export class AdsbLolProvider {
-  constructor({ baseUrl, apiToken = "", userAgent, fetchImpl = globalThis.fetch }) {
+  constructor({
+    baseUrl,
+    apiToken = "",
+    userAgent,
+    routeFallback = null,
+    fetchImpl = globalThis.fetch,
+  }) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiToken = apiToken;
     this.userAgent = userAgent;
+    this.routeFallback = routeFallback;
     this.fetch = fetchImpl;
   }
 
@@ -102,18 +110,45 @@ export class AdsbLolProvider {
 
     if (!planes.length) return new Map();
 
-    const payload = await this.requestJson(`${this.baseUrl}/api/0/routeset`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planes }),
-    });
+    let payload = null;
+    let primaryError = null;
+    try {
+      payload = await this.requestJson(`${this.baseUrl}/api/0/routeset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planes }),
+      });
+    } catch (error) {
+      primaryError = error;
+    }
 
     const routes = new Map();
     for (const rawRoute of Array.isArray(payload) ? payload : []) {
       const route = normalizeAdsbLolRoute(rawRoute);
       if (route) routes.set(route.callsign, route);
     }
+
+    if (this.routeFallback) {
+      const unresolvedCallsigns = new Set(
+        planes.map((plane) => normalizedCallsign(plane.callsign)).filter((callsign) => !routes.has(callsign)),
+      );
+      const unresolvedAircraft = aircraft.filter((item) => (
+        unresolvedCallsigns.has(normalizedCallsign(item.callsign))
+      ));
+      if (unresolvedAircraft.length) {
+        try {
+          const fallbackRoutes = await this.routeFallback.fetchRoutes(unresolvedAircraft);
+          for (const [callsign, route] of fallbackRoutes) routes.set(callsign, route);
+        } catch (fallbackError) {
+          if (!routes.size) {
+            const primaryMessage = primaryError ? `${primaryError.message}; ` : "";
+            throw new Error(`${primaryMessage}ADSBDB fallback failed: ${fallbackError.message}`);
+          }
+        }
+      }
+    } else if (primaryError) {
+      throw primaryError;
+    }
     return routes;
   }
 }
-

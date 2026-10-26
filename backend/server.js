@@ -3,12 +3,17 @@ import { createApp } from "./app.js";
 import { FlightCollector } from "./collector.js";
 import { loadConfig } from "./config.js";
 import { HistoryStore } from "./database.js";
+import { AdsbDbProvider } from "./providers/adsbdb.js";
 import { AdsbLolProvider } from "./providers/adsblol.js";
 import { AirLabsProvider } from "./providers/airlabs.js";
 
 const config = loadConfig();
 const historyStore = new HistoryStore(config.sqlitePath);
-const adsbProvider = new AdsbLolProvider(config.adsbLol);
+const adsbDbProvider = new AdsbDbProvider(config.adsbDb);
+const adsbProvider = new AdsbLolProvider({
+  ...config.adsbLol,
+  routeFallback: adsbDbProvider,
+});
 const airLabsProvider = new AirLabsProvider(config.airLabs);
 const collector = new FlightCollector({
   config,
@@ -44,4 +49,3 @@ function shutdown(signal) {
 
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
-
