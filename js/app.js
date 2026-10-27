@@ -1,5 +1,5 @@
 /* =====================================================================
-   FLIGHT TRACKER — MVP (Week 8)
+   FLIGHT TRACKER — MVP (Week 8 reference, branch v3-final)
    JavaScript = behavior. This file decides what happens when someone
    clicks, types, or picks something, AND it now loads the flight data.
 
@@ -10,6 +10,9 @@
        periods   – up to 5 snapshots in time. Each period holds, for every
                    flight, one point on the map (x, y) plus progress,
                    altitude, speed and heading at that moment.
+
+   Quality helpers (empty values, heading check, data summary) live in
+   js/quality.js, which index.html loads before this file.
 
    How the file is organized:
      1. Grab the pieces of the page we need
@@ -106,6 +109,11 @@ function checkData(data) {
       if (!p.positions[f.id]) throw new Error(`Period ${p.period} has no position for ${f.id}.`);
     });
   });
+}
+
+/* Print what a person should know about the data's quality. This reports; it never stops the app. */
+function reportDataQuality(data) {
+  summarizeQuality(data).forEach((note) => (note.level === "warn" ? console.warn : console.info)(`Data quality · ${note.text}`));
 }
 
 /* Put the data into state and build the look-up tables */
@@ -208,7 +216,7 @@ function simplify(text) {
 function flightMatches(flight) {
   // Safety rule: a flight with an active emergency is never hidden by search or filters
   if (state.alertOn && flight.id === state.meta.alertFlightId) return true;
-  const searchable = simplify(flight.flight + flight.callsign + flight.tail);
+  const searchable = simplify([flight.flight, flight.callsign, flight.tail].filter((v) => !isMissing(v)).join(""));   // skip empty values so "undefined" is never searchable
   const matchesSearch = searchable.includes(simplify(state.search));
   const matchesOrigin = state.origin === "" || flight.origin === state.origin;
   const matchesDest   = state.dest === ""   || flight.destination === state.dest;
@@ -271,27 +279,36 @@ function renderMap() {
   });
 }
 
+/* Show one value in one place on the page.
+   Empty values (null, missing, "") show "Not available" in gray italics; a real 0 shows as 0.
+   null is an expected gap, so it is quiet. A missing key or empty text may be a typo or a bad record, so it is flagged. */
+function setField(selector, value, { name, flightId, suffix = "", format = String }) {
+  const result = formatValue(value, suffix, format);
+  const element = $(selector);
+  element.textContent = result.text;
+  element.classList.toggle("is-missing", result.missing);
+  if (result.kind === "missing") console.warn(`Data quality · ${flightId}: "${name}" is missing. Check the field name for a typo.`);
+  if (result.kind === "empty")   console.warn(`Data quality · ${flightId}: "${name}" is empty text.`);
+}
+
 /* Fill the detail panel from the flight record + its point in the current period (REQ-02, REQ-08) */
 function fillDetail(flight) {
   const pos = state.periods[state.periodIndex].positions[flight.id];
+  const id = flight.id;
 
   $("#detail-title").textContent    = flight.flight;
   $("#detail-origin").textContent   = flight.origin;
   $("#detail-dest").textContent     = flight.destination;
-  $("#detail-departed").textContent = flight.departed;
-  $("#detail-eta").textContent      = flight.eta;
-  $("#detail-callsign").textContent = flight.callsign;
-  $("#detail-speed").textContent    = `${pos.speed} kt`;
-  $("#detail-heading").textContent  = `${pos.heading}°`;
+  setField("#detail-departed", flight.departed, { name: "departed", flightId: id });
+  setField("#detail-eta",      flight.eta,      { name: "eta",      flightId: id });
+  setField("#detail-callsign", flight.callsign, { name: "callsign", flightId: id });
+  setField("#detail-altitude", pos.altitude,    { name: "altitude", flightId: id, suffix: " ft", format: (n) => n.toLocaleString("en-US") });
+  setField("#detail-speed",    pos.speed,       { name: "speed",    flightId: id, suffix: " kt" });
+  setField("#detail-heading",  pos.heading,     { name: "heading",  flightId: id, suffix: "°" });
 
-  // A missing value (null in data.json) shows a plain-language placeholder instead of a blank
-  const hasAltitude = pos.altitude !== null && pos.altitude !== undefined;
-  const altitude = $("#detail-altitude");
-  altitude.textContent = hasAltitude ? `${pos.altitude.toLocaleString("en-US")} ft` : "Not available";
-  altitude.classList.toggle("is-missing", !hasAltitude);
-
-  $("#detail-progress-bar").style.width = `${pos.progress}%`;
-  $("#detail-progress").setAttribute("aria-valuenow", pos.progress);
+  const progress = isMissing(pos.progress) ? 0 : pos.progress;
+  $("#detail-progress-bar").style.width = `${progress}%`;
+  $("#detail-progress").setAttribute("aria-valuenow", progress);
 }
 
 /* Select a flight: highlight it everywhere and open the detail panel */
@@ -561,6 +578,7 @@ async function start() {
   try {
     const data = await loadData();
     checkData(data);
+    reportDataQuality(data);
     useData(data);
   } catch (error) {
     showLoadError(error);

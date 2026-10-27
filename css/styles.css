@@ -308,7 +308,8 @@ ul { list-style: none; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 14px; }
 .fields dt { font-size: 12px; color: var(--gray); }
 .fields dd { font-weight: bold; }
-.fields dd.is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
+.fields dd.is-missing,
+.times .is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
 
 .chart-placeholder {
   display: flex;

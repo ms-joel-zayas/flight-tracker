@@ -1,5 +1,7 @@
 # Flight Tracker — MVP (Week 8: data from `data.json`)
 
+> **Branch `v3-final` is the Week 8 reference for mentors.** Students work on their own `v3-uxbridge` branch, created from their final `v2-uxbridge` work, and compare with this branch. It is a reference, not an answer key to copy.
+
 A black-and-white working version of the approved Flight Tracker design, built with only **HTML, CSS and JavaScript**. No build step, no libraries. As of Week 8 the flights, airports and map points live in **`data.json`** instead of being typed into the HTML, and a **replay** steps through up to five time periods, one every 5 seconds.
 
 | Language | Job | File |
@@ -8,6 +10,7 @@ A black-and-white working version of the approved Flight Tracker design, built w
 | CSS | Presentation: how it looks (black-and-white wireframe) | `css/styles.css` |
 | JavaScript | Behavior: loads the data, builds the page from it, reacts to clicks | `js/app.js` |
 | JSON | Data: airports, flights and the map point of every flight in each period | `data.json` |
+| JavaScript | Data-quality helpers: empty values, heading check, data summary | `js/quality.js` |
 
 ## Run it
 
@@ -39,6 +42,23 @@ If you open the page by double-clicking, the app shows a "Could not load data.js
 | Click **● LIVE** | Replay stops. Live is **not functional yet**: the pill says `LIVE · NO FEED YET` and the map shows the last saved period. It will switch to a live API later | REQ-03, REQ-07 |
 
 The **Demo** menu exists only because there is no live data yet. It stands in for events that a live feed will trigger later. Which flight gets the emergency is set in `data.json` (`meta.alertFlightId`).
+
+## Empty values: `null`, missing, `0` and `""`
+
+These are four different situations. The detail panel treats each one on purpose (helpers in `js/quality.js`, used by `setField()` in `js/app.js`):
+
+| In the data | What it means | What the page shows | Console |
+|---|---|---|---|
+| `"altitude": null` | The key exists, but no value is known | Not available (gray italics) | quiet: expected |
+| the key is not there | A missing field (JavaScript gives `undefined`) | Not available | warning: check for a typo |
+| `"altitude": 0` | A real measurement that is zero | 0 ft | none |
+| `"callsign": ""` | Text with nothing in it | Not available | warning: empty text |
+
+On load the app also prints a short data-quality summary to the browser console (how many values are empty, any heading outside 0 to 359, flights whose ETA is before the last period). It reports; it never stops the app.
+
+## Quality checks and the Challenge answer key
+
+`node tests/quality.test.js` runs the reference answers for the Week 8 Challenge: the four empty-value cases, `isValidHeading()` (true only for numbers from 0 to 359) and the three findings counted from `data.json`. It prints PASS or FAIL for each. `docs/SAMPLE_DATA_DICTIONARY.md` is one possible Aircraft Data Dictionary. It marks the units of altitude, speed and heading as assumptions, because `data.json` does not state them.
 
 ## The data: `data.json`
 
@@ -81,7 +101,12 @@ flight-tracker/
   css/
     styles.css      one stylesheet, sections numbered 1-12
   js/
+    quality.js      empty-value and data-quality helpers (loaded first)
     app.js          loads data.json, builds the page, state, update functions, timer, events
+  tests/
+    quality.test.js Challenge answer key: run with  node tests/quality.test.js
+  docs/
+    SAMPLE_DATA_DICTIONARY.md   mentor reference for the Week 8 data dictionary
   README.md         this file
 ```
 
@@ -105,7 +130,7 @@ Look-up tables (`flightById`, `airportByCode`, `markerById`, ...) turn an id int
 - **Map is a placeholder.** The grid, airport squares and paths are schematic and not to scale. Airport positions loosely follow US geography.
 - **Dim on the map, filter the list.** This is the proposed answer to the students' REQ-05 question and is still to be confirmed in review.
 - **Detail panel has two tabs.** Details come from the finalized wireframe. The Chart tab is a placeholder added for the visualization the Week 6 plan calls for; it was not on the Week 5 wireframe.
-- **Missing values** show "Not available" (see AC 1187's altitude) instead of a blank.
+- **Missing values** show "Not available" (see AC 1187's altitude) instead of a blank. Null, a missing key and empty text all do; a real 0 does not (see "Empty values" above).
 - **Live is a placeholder.** There is no live API yet, so LIVE shows the last saved period and the pill says `LIVE · NO FEED YET`. Only REPLAY moves aircraft.
 - **One day of replay data.** The date drop-down lists only the date in `data.json` (`meta.replayDate`). Other days arrive with real history.
 - **Placeholder numbers.** Positions, speeds and altitudes are made up to show movement, not real flights.
