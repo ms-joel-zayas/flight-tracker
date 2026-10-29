@@ -29,6 +29,9 @@
     <input> and <select> for things you type or pick, <ul> for lists.
   - Give an id="..." to anything JavaScript needs to find later.
   - Give a class="..." to anything CSS needs to style.
+
+  NEW: the flight list, the map markers and the airport labels are no longer
+  typed here. JavaScript builds them from data/flights.json.
 -->
 
 <!-- STEP 1 — App wrapper
@@ -46,33 +49,36 @@
        change its text later.                                                  -->
   <header class="header">
     <h1>FLIGHT TRACKER</h1>
-    <p class="status-pill" id="status-text">LIVE</p>
+    <p class="status-pill" id="status-text">LOADING</p>
   </header>
 
-  <!-- STEP 3 — Sidebar (left panel)
-       WHY: Search, filters and the flight list belong together in one column.
-       YOUR CODE: an <aside class="sidebar"> that contains:
-         a) Search: an <input type="search"> with a <label> (the label can be
-            visually hidden, but it must exist for screen readers).
-         b) Filters: two <select> elements, "Origin" and "Dest", each with a
-            first empty option and then airport codes (ATL, BOS, DEN, JFK,
-            LAX, ORD, SEA, SFO).
-         c) Flight list: a <ul> where each <li> holds one <button> per flight.
-            Start with just 2 or 3 flights. Show the flight name (AC 2210)
-            and route (BOS → ORD).
-            Store extra details on the button with data-* attributes, such as
-            data-origin="BOS" data-dest="ORD". JavaScript can read these
-            later, so you do not need a database yet.
-         d) Empty message: a <p hidden> saying "No flights match" that
-            JavaScript shows when a search finds nothing.                       -->
   <div class="layout">
+
+    <!-- STEP 3 — Sidebar (left panel)
+         WHY: Search, filters and the flight list belong together in one column.
+         YOUR CODE: an <aside class="sidebar"> that contains:
+           a) Search: an <input type="search"> with a <label> (the label can be
+              visually hidden, but it must exist for screen readers).
+           b) Filters: two <select> elements, "Origin" and "Dest", each with a
+              first empty option and then airport codes (ATL, BOS, DEN, JFK,
+              LAX, ORD, SEA, SFO).
+           c) Flight list: a <ul> where each <li> holds one <button> per flight.
+              Start with just 2 or 3 flights. Show the flight name (AC 2210)
+              and route (BOS → ORD).
+              Store extra details on the button with data-* attributes, such as
+              data-origin="BOS" data-dest="ORD". JavaScript can read these
+              later, so you do not need a database yet.
+           d) Empty message: a <p hidden> saying "No flights match" that
+              JavaScript shows when a search finds nothing.                       -->
     <aside class="sidebar">
 
+      <!-- a) Search -->
       <div class="search">
-        <label for="search-input" class="visually-hidden">Search Flights</label>
-        <input type="search" id="search-input" class="field" placeholder="Search Flight # or call-sign">
+        <label for="search-input" class="visually-hidden">Search flights</label>
+        <input type="search" id="search-input" class="field" placeholder="Search flight # or call-sign">
       </div>
 
+      <!-- b) Filters -->
       <div class="filters">
         <label for="filter-origin" class="visually-hidden">Origin</label>
         <select id="filter-origin" class="field">
@@ -86,87 +92,91 @@
           <option value="SEA">SEA</option>
           <option value="SFO">SFO</option>
         </select>
+
+        <label for="filter-dest" class="visually-hidden">Destination</label>
+        <select id="filter-dest" class="field">
+          <option value="">Dest</option>
+          <option value="ATL">ATL</option>
+          <option value="BOS">BOS</option>
+          <option value="DEN">DEN</option>
+          <option value="JFK">JFK</option>
+          <option value="LAX">LAX</option>
+          <option value="ORD">ORD</option>
+          <option value="SEA">SEA</option>
+          <option value="SFO">SFO</option>
+        </select>
       </div>
 
-      <ul class="flight-list" id="flight-list">
-        <li>
-          <button class="btn flight-row" data-id="AC2210" data-origin="BOS" data-dest="ORD" aria-pressed="false">
-            <span class="flight-name">AC 2210</span>
-            <span class="flight-route">ATL -> SEA</span>
-          </button>
-        </li>
-        <li>
-          <button class="btn flight-row" data-id="DL415" data-origin="ATL" data-dest="JFK" aria-pressed="false">
-            <span class="flight-name">UA 88</span>
-            <span class="flight-route">SFO -> JFK</span>
-          </button>
-        </li>
-      </ul>
+      <!-- c) Flight list (empty on purpose: JavaScript adds one <li> per flight) -->
+      <ul class="flight-list" id="flight-list"></ul>
 
+      <!-- d) Empty message -->
       <p id="empty-message" hidden>No flights match</p>
 
+      <!-- STEP 4 — Detail panel
+           WHY: When a flight is picked, the user needs more information about it.
+           YOUR CODE: a <section> (hidden at first) with a title, a close <button>,
+           and <dl> (description list) rows for origin, destination, departed,
+           ETA, altitude and speed. Put an id on every value that JavaScript will
+           fill in.                                                                -->
+      <section class="detail" id="detail-panel" hidden>
+        <div class="detail__top">
+          <h2 id="detail-title">Flight</h2>
+          <button class="btn" type="button" id="detail-close" aria-label="Close details">×</button>
+        </div>
+
+        <dl>
+          <dt>Origin</dt>
+          <dd id="detail-origin"></dd>
+
+          <dt>Destination</dt>
+          <dd id="detail-dest"></dd>
+
+          <dt>Callsign</dt>
+          <dd id="detail-callsign"></dd>
+
+          <dt>Departed</dt>
+          <dd id="detail-departed"></dd>
+
+          <dt>ETA</dt>
+          <dd id="detail-eta"></dd>
+
+          <dt>Altitude</dt>
+          <dd id="detail-altitude"></dd>
+
+          <dt>Speed</dt>
+          <dd id="detail-speed"></dd>
+
+          <dt>Heading</dt>
+          <dd id="detail-heading"></dd>
+
+          <dt>Progress</dt>
+          <dd id="detail-progress"></dd>
+        </dl>
+      </section>
+
     </aside>
-  <!-- STEP 4 — Detail panel
-       WHY: When a flight is picked, the user needs more information about it.
-       YOUR CODE: a <section> (hidden at first) with a title, a close <button>,
-       and <dl> (description list) rows for origin, destination, departed,
-       ETA, altitude and speed. Put an id on every value that JavaScript will
-       fill in.                                                                -->
-<section class="detail" id="detail-panel">
 
-  <div class="detail__top">
-    <h2 id="detail-title">Flight</h2>
-    <button class="btn" id="detail-close" aria-label="Close details">×</button>
+    <!-- STEP 5 — Map area
+         WHY: The map is the main view. For now it is a placeholder, not a real map.
+         YOUR CODE: a <section class="map"> containing:
+           a) A count badge, e.g. "8 AIRCRAFT" (give it an id).
+           b) One <button class="marker"> per flight. Reuse the same flight ids
+              as in the list so the two stay linked (data-id="AC2210").
+           c) A few airport labels using <span>.                                  -->
+    <div class="map" id="map-area">
+      <!-- a) Count badge. The markers (b) and airport labels (c) are added here by JavaScript. -->
+      <span class="badge count-badge" id="count-badge">0 AIRCRAFT</span>
+    </div>
+
   </div>
+</div>
 
-  <dl>
-    <dt>Origin</dt>
-    <dd id="detail-origin"></dd>
-
-    <dt>Destination</dt>
-    <dd id="detail-dest"></dd>
-
-    <dt>Departed</dt>
-    <dd id="detail-departed"></dd>
-
-    <dt>ETA</dt>
-    <dd id="detail-eta"></dd>
-
-    <dt>Altitude</dt>
-    <dd id="detail-altitude"></dd>
-
-    <dt>Speed</dt>
-    <dd id="detail-speed"></dd>
-  </dl>
-
-</section>   
-  <!-- STEP 5 — Map area
-       WHY: The map is the main view. For now it is a placeholder, not a real map.
-       YOUR CODE: a <section class="map"> containing:
-         a) A count badge, e.g. "8 AIRCRAFT" (give it an id).
-         b) One <button class="marker"> per flight. Reuse the same flight ids
-            as in the list so the two stay linked (data-id="AC2210").
-         c) A few airport labels using <span>.                                  -->
-          
-
-      <div class="map" id="map-area">
-        <span class=" badge count-badge" id="count-badge">3 AIRCRAFT</span>
-
-        <button class="btn marker" data-id="AC2210" aria-pressed="false" style="--x: 30%; --y: 35%">AC 2210</button>
-        <button class="btn marker" data-id=" DL415" aria-pressed="false" style="--x: 55%; --y: 60%;">DL 415</button>
-        <button class="btn marker" data-id="UA88" aria-pressed="false" style="--x: 75%; --y: 25%;">UA 88</button>
-
-        <span class="airport" style="--x: 15%; --y: 20%;">BOS</span>
-        <span class="airport" style="--x: 45%; --y: 45%;">ORD</span>
-        <span class="airport" style="--x: 85%; --y: 70%;">SEA</span>
-      </div> 
-  </div>
-  
 <!-- STEP 6 — Connect JavaScript
      WHY: Put the <script> LAST, just before </body>. The browser reads the
      page top to bottom, so the elements must exist before JavaScript tries
      to find them.
      YOUR CODE: <script src="js/app.js"></script>                              -->
-</div>
+<script src="js/app.js"></script>
 </body>
 </html>

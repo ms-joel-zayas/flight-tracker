@@ -339,6 +339,10 @@ ul {
   outline-offset: 3px;
 }
 
+.marker.is-dimmed {
+  opacity: 0.3;
+}
+
 .airport {
   font-size: 14px;
   font-weight: 700;
