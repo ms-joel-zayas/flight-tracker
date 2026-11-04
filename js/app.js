@@ -179,7 +179,13 @@ function toLatLng(place) {
 function buildMap() {
   // 1. An empty map inside <div id="map-canvas">, with the background pictures (tiles) on it
   map = L.map("map-canvas", { minZoom: 3 });
-  const tiles = L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+  // OpenStreetMap blocks tile requests that arrive without a Referer header (its usage policy requires one).
+  // Some hosts, such as GitHub Codespaces, can strip it, so ask the browser to send our site's address with each tile.
+  const tiles = L.tileLayer(TILE_URL, {
+    maxZoom: 19,
+    attribution: TILE_ATTRIBUTION,
+    referrerPolicy: "strict-origin-when-cross-origin"
+  }).addTo(map);
   tiles.on("tileerror", () => { mapNote.hidden = false; });     // no internet: say so, keep going
 
   // 2. Choose what the map shows first: zoomed so every airport fits (padding keeps them clear of the replay bar)
