@@ -1,5 +1,5 @@
 /* =====================================================================
-   FLIGHT TRACKER — data-quality helpers (Week 8 reference, v3-final)
+   FLIGHT TRACKER — data-quality helpers (Week 8 + Week 9 reference, v4-final)
    Small "pure" functions: they take values in and give answers back, and
    they never touch the page. That makes them easy to test (see
    tests/quality.test.js) and easy to read.
@@ -37,6 +37,32 @@ function isValidHeading(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 359;
 }
 
+/* ---- Week 9: is this a place a map can draw? ----
+   A map library needs two numbers. Latitude (north/south) runs -90 to 90. Longitude
+   (east/west) runs -180 to 180, and places west of Greenwich, like the USA, are negative.
+   Leaflet wants them in the order [lat, lon]. */
+function isValidLatitude(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function isValidLongitude(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+/* Does this airport or position have a usable lat and lon? The map skips anything that does not. */
+function hasLocation(place) {
+  return Boolean(place) && isValidLatitude(place.lat) && isValidLongitude(place.lon);
+}
+
+/* Why can this place not be drawn? Returns "" when it can. Latitude and longitude typed in the
+   wrong order are a classic mistake, so name it when the numbers would fit the other way round. */
+function locationProblem(place) {
+  if (isMissing(place.lat) || isMissing(place.lon)) return "is missing lat or lon";
+  if (hasLocation(place)) return "";
+  if (isValidLatitude(place.lon) && isValidLongitude(place.lat)) return `has lat ${place.lat} and lon ${place.lon}, which look swapped`;
+  return `has lat ${place.lat} and lon ${place.lon}, outside the valid range`;
+}
+
 /* Flights whose ETA is earlier than the last period's clock time, yet are not at 100% progress.
    data.json calls ETA a placeholder, so this is documented, but it is still worth reporting. */
 function findInconsistentEtas(data) {
@@ -66,6 +92,16 @@ function summarizeQuality(data) {
     }
   });
 
+  // Week 9: every place the map draws needs a usable lat and lon
+  data.airports.forEach((a) => {
+    const problem = locationProblem(a);
+    if (problem) notes.push({ level: "warn", text: `Valid? airport ${a.code} ${problem}.` });
+  });
+  data.periods.forEach((p) => Object.entries(p.positions).forEach(([flightId, pos]) => {
+    const problem = locationProblem(pos);
+    if (problem) notes.push({ level: "warn", text: `Valid? ${flightId} in period ${p.period} ${problem}.` });
+  }));
+
   data.periods.forEach((p) => Object.entries(p.positions).forEach(([flightId, pos]) => {
     if (!isMissing(pos.heading) && !isValidHeading(pos.heading)) {
       notes.push({ level: "warn", text: `Valid? ${flightId} in period ${p.period} has heading ${pos.heading}, outside 0-359.` });
@@ -88,5 +124,5 @@ function summarizeQuality(data) {
 
 /* In the browser these are plain globals. In Node (the tests) they are exported. */
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { emptyKind, isMissing, formatValue, isValidHeading, findInconsistentEtas, summarizeQuality };
+  module.exports = { emptyKind, isMissing, formatValue, isValidHeading, isValidLatitude, isValidLongitude, hasLocation, locationProblem, findInconsistentEtas, summarizeQuality };
 }

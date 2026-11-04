@@ -325,65 +325,74 @@ ul { list-style: none; }
 .chart-placeholder__note { font-size: 11px; color: var(--gray); }
 
 
-/* ---------- 8. Map ---------- */
+/* ---------- 8. Map (Leaflet draws the map; these rules style what we add to it) ---------- */
 .map {
   position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  background-color: var(--lighter);
-  /* simple grid so it reads as a map surface */
-  background-image:
-    linear-gradient(var(--light) 1px, transparent 1px),
-    linear-gradient(90deg, var(--light) 1px, transparent 1px);
-  background-size: 12.5% 16.666%;
+  background-color: var(--lighter);      /* shows until the first tiles arrive */
 }
 
 .badge--count { position: absolute; top: 16px; left: 28px; z-index: 5; }
 
-.map__caption {
+/* The box Leaflet fills. Its own stacking context keeps Leaflet's panes (z-index up to 1000)
+   underneath our badge, alert banner and replay bar. */
+.map__canvas { position: absolute; inset: 0; z-index: 0; font-family: var(--font); background: var(--lighter); }
+.map .leaflet-container { font-family: var(--font); font-size: 12px; background: var(--lighter); }
+
+/* Black-and-white wireframe: turn the colored tiles gray */
+.map .leaflet-tile-pane { filter: grayscale(1) contrast(0.85) brightness(1.08); }
+
+/* Leaflet's zoom buttons sit under the aircraft count; its attribution (required by OpenStreetMap)
+   sits just above the replay bar. --replay-height is set from the bar's real height in app.js. */
+.map .leaflet-top.leaflet-left { margin-top: 44px; margin-left: 12px; }
+.map .leaflet-bottom { bottom: calc(var(--replay-height, 112px) + 16px); }
+.map .leaflet-bar { border: var(--line) solid var(--ink); border-radius: var(--radius); box-shadow: none; overflow: hidden; }
+.map .leaflet-bar a { color: var(--ink); border-bottom-color: var(--ink); font-family: var(--font); }
+.map .leaflet-control-attribution { font-size: 10px; background: rgba(255, 255, 255, 0.85); }
+
+.map__note {
   position: absolute;
-  right: 16px;
-  bottom: 124px;
+  top: 16px; left: 50%;
+  z-index: 7;
+  max-width: min(420px, calc(100% - 32px));
+  transform: translateX(-50%);
+  padding: 6px 10px;
   font-size: 11px;
-  color: var(--gray);
+  background: var(--paper);
+  border: var(--line) dashed var(--ink);
+  border-radius: var(--radius);
 }
 
-/* Paths (REQ-06): coordinates are in % so they line up with the markers */
-.map__paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.path polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+/* Lines (REQ-06). Leaflet draws each one as an SVG <path> and gives it the class we pass in. */
+.path__trail-short, .path__trail-full, .path__projected { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .path__trail-short { stroke: var(--gray); stroke-width: 2; }
 .path__trail-full,
 .path__projected { display: none; }
-.path.is-selected .path__trail-short { display: none; }
-.path.is-selected .path__trail-full { display: inline; stroke: var(--ink); stroke-width: 3.5; }
-.path.is-selected .path__projected { display: inline; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 9 8; }
-.path.is-dimmed { opacity: 0.2; }
+.path__trail-short.is-selected { display: none; }
+.path__trail-full.is-selected { display: inline; stroke: var(--ink); stroke-width: 3.5; }
+.path__projected.is-selected { display: inline; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 9 8; }
+.path__trail-short.is-dimmed, .path__trail-full.is-dimmed, .path__projected.is-dimmed { opacity: 0.2; }
 
-/* Layer that holds the airports and markers (built from data.json) */
-.map__layer { position: absolute; inset: 0; pointer-events: none; }
-.map__layer .marker { pointer-events: auto; }
-
-/* Airports */
-.airport { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); pointer-events: none; }
+/* Airports: a small square and a code, placed by Leaflet at the airport's lat/lon */
+.airport { position: relative; display: block; width: 12px; height: 12px; pointer-events: none; }
 .airport__sq { display: block; width: 12px; height: 12px; background: var(--paper); border: var(--line) solid var(--ink); }
-.airport__code { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: bold; }
+.airport__code { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: bold; text-shadow: 0 0 3px var(--paper), 0 0 3px var(--paper); }
 
-/* Aircraft markers */
+/* Aircraft markers: a <button> inside the box Leaflet moves around (a divIcon) */
 .marker {
-  position: absolute;
-  left: var(--x);
-  top: var(--y);
-  z-index: 3;
+  position: relative;
+  display: block;
   width: 18px; height: 18px;
-  margin: -9px 0 0 -9px;
   padding: 0;
   background: var(--paper);
   border: var(--line) solid var(--gray);
   border-radius: 50%;
   cursor: pointer;
+  pointer-events: auto;                  /* Leaflet turns clicks off for non-interactive markers; the button turns them back on */
 }
-.marker__nose {            /* the little tick that shows heading */
+.marker__nose {            /* the little tick that shows the direction of travel */
   position: absolute;
   left: 50%; top: 50%;
   width: 0; height: 0;
@@ -406,14 +415,18 @@ ul { list-style: none; }
   white-space: nowrap;
   background: var(--paper);
 }
-.marker:hover,
-.marker:focus-visible,
-.marker[aria-pressed="true"],
-.marker.is-alert { z-index: 6; }
+/* The marker being pointed at, focused, selected or in alert rises above its neighbors */
+.leaflet-marker-icon:hover,
+.leaflet-marker-icon:focus-within { z-index: 10000 !important; }
 .marker:hover .marker__label,
 .marker:focus-visible .marker__label,
 .marker[aria-pressed="true"] .marker__label,
 .marker.is-alert .marker__label { display: block; }
+
+/* Challenge example: the altitude band changes the outline. null (no altitude) is dashed, like the "Not available" rule. */
+.marker[data-band="low"]     { border-style: dotted; }
+.marker[data-band="high"]    { border-width: 4px; }
+.marker[data-band="unknown"] { border-style: dashed; }
 
 .marker[aria-pressed="true"] {
   background: var(--gray);
@@ -436,6 +449,18 @@ ul { list-style: none; }
 }
 .marker.is-dimmed { opacity: 0.2; pointer-events: none; }
 .marker.is-alert.is-dimmed { opacity: 1; pointer-events: auto; }   /* an alert is never hidden by filters */
+
+/* The popup Leaflet opens above a selected aircraft */
+.map .leaflet-popup-content-wrapper { color: var(--ink); background: var(--paper); border: var(--line) solid var(--ink); border-radius: var(--radius); box-shadow: none; }
+.map .leaflet-popup-tip { background: var(--ink); box-shadow: none; }
+.map .leaflet-popup-content { margin: 10px 14px; font-size: 12px; line-height: 1.5; }
+.map .leaflet-container a.leaflet-popup-close-button { color: var(--ink); }
+.popup__title { display: block; font-size: 14px; }
+.popup__route { display: block; margin-bottom: 4px; color: var(--gray); }
+.popup__row { display: flex; justify-content: space-between; gap: 16px; }
+.popup__row dt { margin: 0; color: var(--gray); }
+.popup__row dd { margin: 0; font-weight: bold; }
+.popup__row dd.is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
 
 
 /* ---------- 9. Replay bar (REQ-07) ---------- */
@@ -509,10 +534,9 @@ ul { list-style: none; }
   .layout { flex-direction: column; }
   .panel-handle { display: none; }
   .app[data-panel="closed"] .sidebar { margin-left: 0; }
-  .map { order: -1; min-height: 520px; flex: none; }
+  .map { order: -1; min-height: 640px; flex: none; }
   .sidebar { width: auto; border-right: 0; border-top: var(--line) solid var(--ink); }
   .flight-list { max-height: 240px; }
   .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
   .alert-banner { left: 16px; top: 60px; }
-  .map__caption { display: none; }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "flight-tracker",
+  "version": "4.0.0",
+  "description": "Flight Tracker MVP (MatrixSpace + Uxbridge HS internship): a plain HTML, CSS and JavaScript app that shows aircraft from data.json on a Leaflet map.",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node tests/quality.test.js"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4"
+  }
+}

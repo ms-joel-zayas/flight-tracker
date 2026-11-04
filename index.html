@@ -3,19 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flight Tracker — MVP (data from data.json)</title>
+  <title>Flight Tracker — MVP (Leaflet map)</title>
+  <!-- Leaflet's own stylesheet comes from node_modules (run "npm install" once). Ours comes after it so ours can override it. -->
+  <link rel="stylesheet" href="node_modules/leaflet/dist/leaflet.css">
   <!-- CSS = presentation. Everything visual lives in this one file. -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
 <!--
-  FLIGHT TRACKER — MVP (Week 8: data comes from data.json)
+  FLIGHT TRACKER — MVP (Week 9: the map comes from Leaflet)
   HTML = structure. This file is only the markup: what is on the screen.
   The data-component="…" attributes name each block. They are the pieces
   that become React components when this project moves to Next.js.
-  Flights, airports and map points are NOT written here any more. js/app.js
-  loads data.json and builds the flight rows, airports, markers and paths.
+  Flights, airports and map points are NOT written here. js/app.js loads
+  data.json and builds the flight rows; Leaflet draws the map (tiles,
+  airports, aircraft markers and trails) inside the empty #map-canvas.
 -->
 <div class="app" id="app" data-panel="open">
 
@@ -40,7 +43,7 @@
         </div>
       </div>
 
-      <span class="badge">v3.0</span>
+      <span class="badge">v4.0</span>
     </div>
   </header>
 
@@ -136,7 +139,7 @@
 
       <!-- Shown only if data.json could not be loaded -->
       <div class="load-error" id="load-error" role="alert" hidden>
-        <p class="load-error__title">Could not load data.json</p>
+        <p class="load-error__title" id="load-error-title">Could not load data.json</p>
         <p class="load-error__text" id="load-error-text"></p>
       </div>
 
@@ -147,15 +150,12 @@
         <button class="btn btn--inverse btn--icon" type="button" id="alert-dismiss" aria-label="Dismiss alert">×</button>
       </div>
 
-      <!-- Flight paths (REQ-06): solid = where it has been, dashed = where it is going -->
-      <svg class="map__paths" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <!-- One <g class="path"> per flight is built by js/app.js: trail (where it has been) and projected line (where it is going) -->
-      </svg>
+      <!-- The Leaflet map is created inside this empty box by js/app.js (L.map("map-canvas")).
+           Everything the map draws is built from data.json: airports, aircraft markers, trails (REQ-06). -->
+      <div class="map__canvas" id="map-canvas"></div>
 
-      <!-- Airports and aircraft markers are built by js/app.js from data.json (airports[] and flights[]) -->
-      <div class="map__layer" id="map-layer"></div>
-
-      <p class="map__caption">MAP PLACEHOLDER · schematic, not to scale</p>
+      <!-- Shown only if the map tiles (the background pictures) cannot be downloaded -->
+      <p class="map__note" id="map-note" role="status" hidden>Map tiles could not be loaded (no internet?). Aircraft are still drawn at their latitude and longitude.</p>
 
       <!-- Replay / live controls (REQ-07) (component: ReplayBar) -->
       <div class="replay" id="replay" data-component="ReplayBar" data-mode="live">
@@ -198,7 +198,8 @@
   </div>
 </div>
 
-<!-- JavaScript = behavior. Plain scripts (no modules): quality.js (empty-value and data-quality helpers) first, then app.js. It fetches data.json, so open the page through a local server (see README). -->
+<!-- JavaScript = behavior. Plain scripts (no modules), in this order: Leaflet (the library, from node_modules), quality.js (empty-value and data-quality helpers), then app.js. app.js fetches data.json, so open the page through a local server (see README). -->
+<script src="node_modules/leaflet/dist/leaflet.js"></script>
 <script src="js/quality.js"></script>
 <script src="js/app.js"></script>
 </body>

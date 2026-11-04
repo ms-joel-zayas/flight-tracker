@@ -1,24 +1,29 @@
 /* =====================================================================
-   FLIGHT TRACKER — MVP (Week 8 reference, branch v3-final)
+   FLIGHT TRACKER — MVP (Week 9 reference, branch v4-final)
    JavaScript = behavior. This file decides what happens when someone
-   clicks, types, or picks something, AND it now loads the flight data.
+   clicks, types, or picks something. It loads the flight data (Week 8)
+   and draws the aircraft on a real map with the Leaflet library (Week 9).
 
    Where the data lives:
      data.json (project root) holds three arrays:
-       airports  – code, name, and where each airport sits on the map
+       airports  – code, name, and where each airport is (lat, lon)
        flights   – one record per flight (callsign, tail number, route, times)
        periods   – up to 5 snapshots in time. Each period holds, for every
-                   flight, one point on the map (x, y) plus progress,
+                   flight, one point on Earth (lat, lon) plus progress,
                    altitude, speed and heading at that moment.
 
-   Quality helpers (empty values, heading check, data summary) live in
-   js/quality.js, which index.html loads before this file.
+   Leaflet (the map library) is installed with npm into node_modules/ and
+   loaded by index.html before this file. It gives us the global "L".
+   Leaflet always wants a place as [lat, lon]: latitude first.
+
+   Quality helpers (empty values, heading check, lat/lon check, data
+   summary) live in js/quality.js, which index.html loads before this file.
 
    How the file is organized:
      1. Grab the pieces of the page we need
      2. One "state" object that remembers what is going on
      3. Load data.json
-     4. Build the flight list, filters, airports, markers and paths from the data
+     4. Build the flight list, filters and the Leaflet map (airports, markers, lines) from the data
      5. Small functions that update the page to match the state
      6. The period timer (replay): one period every 5 seconds
      7. Event listeners: "when this is clicked, call that function"
@@ -39,9 +44,8 @@ const flightList    = $("#flight-list");
 const emptyNote     = $("#empty-note");
 const aircraftCount = $("#aircraft-count");
 
-const mapArea     = $("#map");
-const mapLayer    = $("#map-layer");           // airports + markers go here
-const mapPaths    = $(".map__paths");          // the SVG that holds every flight's lines
+const mapArea     = $("#map");                 // the section that holds the map and everything floating over it
+const mapNote     = $("#map-note");            // "tiles could not be loaded" message
 const detailPanel = $("#detail-panel");
 const statusPill  = $("#status-pill");
 const statusText  = $("#status-text");
@@ -53,14 +57,18 @@ const periodText  = $("#replay-period");
 
 const DATA_FILE = "data.json";
 
+/* The map's background pictures ("tiles") come from OpenStreetMap. Their rules require the credit line below. */
+const TILE_URL         = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
 
 /* ---------- 2. State: everything the page needs to remember ---------- */
 const state = {
   // --- data (filled in from data.json) ---
   meta: {},
-  airports: [],         // [{ code, name, x, y }]
+  airports: [],         // [{ code, name, lat, lon }]
   flights: [],          // [{ id, flight, callsign, tail, origin, destination, departed, eta }]
-  periods: [],          // [{ period, time, positions: { [flightId]: { x, y, progress, ... } } }]
+  periods: [],          // [{ period, time, positions: { [flightId]: { lat, lon, progress, ... } } }]
 
   // --- what is going on ---
   periodIndex: 0,       // which period is on the map (0 = the first one)
@@ -79,11 +87,16 @@ const state = {
 };
 
 /* Look-up tables built once the data arrives: id -> record, so we never loop to find one */
-const airportByCode = {};   // "JFK" -> { code, name, x, y }
+const airportByCode = {};   // "JFK" -> { code, name, lat, lon }
 const flightById    = {};   // "AC2210" -> { id, flight, ... }
 const rowById       = {};   // "AC2210" -> the <button> in the list
-const markerById    = {};   // "AC2210" -> the <button> on the map
-const pathById      = {};   // "AC2210" -> { group, trailShort, trailFull, projected }
+const markerById    = {};   // "AC2210" -> the <button> on the map (the part we style)
+const mapMarkerById = {};   // "AC2210" -> the Leaflet marker that carries that button (the part Leaflet moves)
+const pathById      = {};   // "AC2210" -> { trailShort, trailFull, projected }: three Leaflet lines
+
+/* The Leaflet map and its layers. They are created in buildMap(), once the data has arrived. */
+let map = null;             // the Leaflet map itself
+let aircraftLayer = null;   // a group that holds every aircraft marker that has a place to be drawn
 
 
 /* ---------- 3. Load data.json ---------- */
@@ -157,38 +170,61 @@ function buildFilters() {
   filterDest.insertAdjacentHTML("beforeend", options);
 }
 
-/* The map: airports, aircraft markers, and the lines for each flight */
+/* Leaflet wants [lat, lon]. Our data names them lat and lon, so this turns one record into one place. */
+function toLatLng(place) {
+  return [place.lat, place.lon];
+}
+
+/* The map: Leaflet draws the background; we add airports, aircraft markers, and the lines for each flight */
 function buildMap() {
-  const airports = state.airports.map((a) => `
-    <span class="airport" style="--x: ${a.x}%; --y: ${a.y}%">
-      <span class="airport__sq"></span><span class="airport__code">${esc(a.code)}</span>
-    </span>`).join("");
+  // 1. An empty map inside <div id="map-canvas">, with the background pictures (tiles) on it
+  map = L.map("map-canvas", { minZoom: 3 });
+  const tiles = L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+  tiles.on("tileerror", () => { mapNote.hidden = false; });     // no internet: say so, keep going
 
-  const markers = state.flights.map((f) => `
-    <button class="marker" type="button" data-id="${esc(f.id)}"
-            aria-label="${esc(f.flight)}, ${esc(f.origin)} to ${esc(f.destination)}" aria-pressed="false">
-      <span class="marker__nose" aria-hidden="true"></span>
-      <span class="marker__label" aria-hidden="true">${esc(f.flight)}</span>
-    </button>`).join("");
+  // 2. Choose what the map shows first: zoomed so every airport fits (padding keeps them clear of the replay bar)
+  const places = state.airports.filter(hasLocation);
+  const clearOfReplayBar = replayBar.offsetHeight + 30;           // so nothing hides behind the replay bar
+  if (places.length > 0) map.fitBounds(places.map(toLatLng), { paddingTopLeft: [40, 70], paddingBottomRight: [40, clearOfReplayBar] });
+  else map.setView([39.5, -98.35], 4);                           // centre of the USA, if no airport has a usable place
 
-  mapLayer.innerHTML = airports + markers;
+  // 3. Airports: a square and a code, placed at lat/lon. Not clickable, so they never block a drag.
+  places.forEach((a) => {
+    const icon = L.divIcon({
+      className: "",
+      html: `<span class="airport"><span class="airport__sq"></span><span class="airport__code">${esc(a.code)}</span></span>`,
+      iconSize: [12, 12],
+    });
+    L.marker(toLatLng(a), { icon, interactive: false, keyboard: false }).addTo(map);
+  });
 
-  // solid short line = recent trail, solid long line = whole trail, dashed = where it is going (REQ-06)
-  mapPaths.innerHTML = state.flights.map((f) => `
-    <g class="path" data-id="${esc(f.id)}">
-      <polyline class="path__trail-short" points="" />
-      <polyline class="path__trail-full" points="" />
-      <polyline class="path__projected" points="" />
-    </g>`).join("");
+  // 4. Lines (REQ-06) and aircraft markers, one set per flight
+  aircraftLayer = L.layerGroup().addTo(map);
 
-  $$(".marker", mapLayer).forEach((m) => { markerById[m.dataset.id] = m; });
-  $$(".path", mapPaths).forEach((g) => {
-    pathById[g.dataset.id] = {
-      group:      g,
-      trailShort: $(".path__trail-short", g),
-      trailFull:  $(".path__trail-full", g),
-      projected:  $(".path__projected", g),
+  state.flights.forEach((f) => {
+    // solid short line = recent trail, solid long line = whole trail, dashed = where it is going
+    pathById[f.id] = {
+      trailShort: L.polyline([], { className: "path__trail-short", interactive: false }).addTo(map),
+      trailFull:  L.polyline([], { className: "path__trail-full",  interactive: false }).addTo(map),
+      projected:  L.polyline([], { className: "path__projected",   interactive: false }).addTo(map),
     };
+
+    // The aircraft is still a real <button> (keyboard and screen readers keep working). Leaflet carries it.
+    const button = document.createElement("button");
+    button.className = "marker";
+    button.type = "button";
+    button.dataset.id = f.id;
+    button.setAttribute("aria-label", `${f.flight}, ${f.origin} to ${f.destination}`);
+    button.setAttribute("aria-pressed", "false");
+    button.innerHTML = `<span class="marker__nose" aria-hidden="true"></span><span class="marker__label" aria-hidden="true">${esc(f.flight)}</span>`;
+
+    const icon   = L.divIcon({ className: "", html: button, iconSize: [18, 18] });
+    const origin = airportByCode[f.origin];
+    const marker = L.marker(hasLocation(origin) ? toLatLng(origin) : map.getCenter(), { icon, interactive: false, keyboard: false });
+    marker.bindPopup("", { autoPanPaddingTopLeft: [20, 70], autoPanPaddingBottomRight: [20, clearOfReplayBar] });   // the text is filled in by renderMap()
+
+    markerById[f.id] = button;
+    mapMarkerById[f.id] = marker;
   });
 }
 
@@ -231,7 +267,7 @@ function renderFlights() {
     const visible = flightMatches(flight);
     rowById[flight.id].parentElement.hidden = !visible;                      // list: hide non-matches
     markerById[flight.id].classList.toggle("is-dimmed", !visible);           // map: dim non-matches
-    pathById[flight.id].group.classList.toggle("is-dimmed", !visible);
+    setPathClass(flight.id, "is-dimmed", !visible);
     if (visible) visibleCount += 1;
   });
 
@@ -242,40 +278,90 @@ function renderFlights() {
   if (state.selectedId && !flightMatches(flightById[state.selectedId])) closeDetail();
 }
 
-/* The angle (in degrees) from a point toward the flight's destination, measured on screen.
-   This is what turns the little tick on a marker so it points where the flight is going. */
+/* The angle (in degrees) from a point toward the flight's destination, measured on the flat map.
+   This is what turns the little tick on a marker so it points where the flight is going.
+   map.project() turns a lat/lon into pixel positions; the angle between two places is the same at every zoom. */
 function angleToDestination(pos, destination) {
-  const box = mapArea.getBoundingClientRect();           // % of width and height are different pixel sizes
-  const dx = (destination.x - pos.x) * (box.width  || 1);
-  const dy = (destination.y - pos.y) * (box.height || 1);
-  return Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
+  const from = map.project(toLatLng(pos), 4);
+  const to   = map.project(toLatLng(destination), 4);
+  return Math.round(Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI);
 }
 
-/* "x,y x,y x,y" is how an SVG polyline wants its points */
-function toPoints(list) {
-  return list.map((p) => `${p.x},${p.y}`).join(" ");
+/* Which band is this altitude in? The marker's outline shows it (Challenge example).
+   An empty altitude is its own band, so a gap in the data never looks like a low flight. */
+function altitudeBand(altitude) {
+  if (isMissing(altitude)) return "unknown";
+  if (altitude < 30000) return "low";
+  if (altitude >= 35000) return "high";
+  return "mid";
+}
+
+/* One row of the popup. Empty values follow the same "Not available" rule as the detail panel. */
+function popupRow(label, value, suffix = "", format = String) {
+  const result = formatValue(value, suffix, format);
+  return `<div class="popup__row"><dt>${label}</dt><dd${result.missing ? ' class="is-missing"' : ""}>${esc(result.text)}</dd></div>`;
+}
+
+/* The text inside the popup that opens above a selected aircraft */
+function popupHtml(flight, pos) {
+  return `<strong class="popup__title">${esc(flight.flight)}</strong>
+    <span class="popup__route">${esc(flight.origin)} → ${esc(flight.destination)}</span>
+    <dl>
+      ${popupRow("Callsign", flight.callsign)}
+      ${popupRow("Altitude", pos.altitude, " ft", (n) => n.toLocaleString("en-US"))}
+      ${popupRow("Speed", pos.speed, " kt")}
+      ${popupRow("Heading", pos.heading, "°")}
+    </dl>`;
+}
+
+/* Every place a flight has been so far: its origin airport, then one point per period up to the one showing.
+   A for loop fits here because we need the index (i) to stop at the current period. */
+function trailPoints(flight) {
+  const points = [airportByCode[flight.origin]];
+  for (let i = 0; i <= state.periodIndex; i++) {
+    points.push(state.periods[i].positions[flight.id]);
+  }
+  return points.filter(hasLocation).map(toLatLng);       // a point with no usable lat/lon is skipped, not drawn at (0, 0)
+}
+
+/* Add or remove one CSS class on all three lines of a flight (is-selected, is-dimmed) */
+function setPathClass(id, className, on) {
+  Object.values(pathById[id]).forEach((line) => line.getElement().classList.toggle(className, on));
+}
+
+/* Keep the selected aircraft and the alert aircraft on top of their neighbors */
+function updateMarkerOrder() {
+  state.flights.forEach((f) => {
+    const raised = f.id === state.selectedId || (state.alertOn && f.id === state.meta.alertFlightId);
+    mapMarkerById[f.id].setZIndexOffset(raised ? 1000 : 0);
+  });
 }
 
 /* Draw the map for the current period: move each marker and redraw its lines */
 function renderMap() {
   state.flights.forEach((flight) => {
     const pos    = state.periods[state.periodIndex].positions[flight.id];
-    const origin = airportByCode[flight.origin];
     const dest   = airportByCode[flight.destination];
+    const marker = mapMarkerById[flight.id];
+    const button = markerById[flight.id];
+    const path   = pathById[flight.id];
 
-    // Marker: a different point for each period
-    const marker = markerById[flight.id];
-    marker.style.setProperty("--x", `${pos.x}%`);
-    marker.style.setProperty("--y", `${pos.y}%`);
-    marker.style.setProperty("--rot", `${angleToDestination(pos, dest)}deg`);
+    if (hasLocation(pos)) {
+      // Marker: a different place for each period
+      marker.setLatLng(toLatLng(pos));
+      aircraftLayer.addLayer(marker);
+      if (hasLocation(dest)) button.style.setProperty("--rot", `${angleToDestination(pos, dest)}deg`);
+      button.dataset.band = altitudeBand(pos.altitude);
+      marker.setPopupContent(popupHtml(flight, pos));
+    } else {
+      aircraftLayer.removeLayer(marker);                 // nowhere to draw it this period
+    }
 
     // Lines: origin -> every point so far (the trail), then current point -> destination (projected)
-    const visited = state.periods.slice(0, state.periodIndex + 1).map((p) => p.positions[flight.id]);
-    const trail   = [origin, ...visited];
-    const path    = pathById[flight.id];
-    path.trailShort.setAttribute("points", toPoints(trail.slice(-3)));
-    path.trailFull.setAttribute("points", toPoints(trail));
-    path.projected.setAttribute("points", toPoints([pos, dest]));
+    const trail = trailPoints(flight);
+    path.trailShort.setLatLngs(trail.slice(-3));
+    path.trailFull.setLatLngs(trail);
+    path.projected.setLatLngs(hasLocation(pos) && hasLocation(dest) ? [toLatLng(pos), toLatLng(dest)] : []);
   });
 }
 
@@ -319,24 +405,31 @@ function selectFlight(id) {
     const isSelected = f.id === id;
     rowById[f.id].setAttribute("aria-pressed", String(isSelected));
     markerById[f.id].setAttribute("aria-pressed", String(isSelected));
-    pathById[f.id].group.classList.toggle("is-selected", isSelected);   // shows the dashed path (REQ-06)
+    setPathClass(f.id, "is-selected", isSelected);                      // shows the dashed path (REQ-06)
   });
+  updateMarkerOrder();
 
   fillDetail(flightById[id]);
   detailPanel.hidden = false;
   setPanel(true);                       // make sure the left panel is visible
   rowById[id].scrollIntoView({ block: "nearest" });
+
+  // Open the popup above the aircraft (Leaflet pans the map if the popup would be cut off)
+  if (aircraftLayer.hasLayer(mapMarkerById[id])) mapMarkerById[id].openPopup();
 }
 
 /* Close the detail panel and clear the selection */
 function closeDetail() {
+  const previousId = state.selectedId;
   state.selectedId = null;
   state.flights.forEach((f) => {
     rowById[f.id].setAttribute("aria-pressed", "false");
     markerById[f.id].setAttribute("aria-pressed", "false");
-    pathById[f.id].group.classList.remove("is-selected");
+    setPathClass(f.id, "is-selected", false);
   });
+  updateMarkerOrder();
   detailPanel.hidden = true;
+  if (previousId) mapMarkerById[previousId].closePopup();
 }
 
 /* Switch between the "Details" and "Chart" tabs */
@@ -401,6 +494,7 @@ function setAlert(on) {
   $("#alert-text").textContent = `⚠ ALERT · ${flightById[state.meta.alertFlightId].flight} · EMERGENCY`;
   markerById[state.meta.alertFlightId].classList.toggle("is-alert", on);
   rowById[state.meta.alertFlightId].classList.toggle("is-alert", on);
+  updateMarkerOrder();
   $("#demo-alert").setAttribute("aria-pressed", String(on));
   renderFlights();                      // re-check search/filters (the alert flight is always shown)
 }
@@ -492,9 +586,15 @@ function wireEvents() {
     const row = event.target.closest(".flight-row");
     if (row) selectFlight(row.dataset.id);
   });
-  mapLayer.addEventListener("click", (event) => {
+  mapArea.addEventListener("click", (event) => {
     const marker = event.target.closest(".marker");
     if (marker) selectFlight(marker.dataset.id);
+  });
+
+  // Closing the popup with its × (or Esc) also closes the detail panel, so the two never disagree
+  map.on("popupclose", (event) => {
+    const open = state.selectedId && mapMarkerById[state.selectedId];
+    if (open && event.popup === open.getPopup()) closeDetail();
   });
 
   // Detail panel
@@ -546,8 +646,7 @@ function wireEvents() {
     if (!event.target.closest(".demo")) setDemoMenu(false);   // click anywhere else closes the menu
   });
 
-  // The marker ticks depend on the map's shape, so redraw when the window changes size
-  window.addEventListener("resize", renderMap);
+  watchSizes();
 
   // Escape closes the demo menu first, then the detail panel
   document.addEventListener("keydown", (event) => {
@@ -558,30 +657,54 @@ function wireEvents() {
 }
 
 
+/* The map has to be told when its box changes size (window resized, left panel slid away),
+   and its credit line has to stay above the replay bar, which can wrap onto more lines. */
+function watchSizes() {
+  new ResizeObserver(() => map.invalidateSize()).observe(mapArea);
+  new ResizeObserver(() => mapArea.style.setProperty("--replay-height", `${replayBar.offsetHeight}px`)).observe(replayBar);
+}
+
+
 /* ---------- 8. Start-up ---------- */
 
-/* If data.json cannot be loaded, say so on the page instead of showing an empty app */
-function showLoadError(error) {
-  console.error(error);
-  const fromFile = location.protocol === "file:";
-  $("#load-error-text").textContent = fromFile
-    ? "Browsers block fetch() for pages opened by double-clicking (file://). Start a local server in the project folder " +
-      "(python3 -m http.server 8000, or Live Server in VS Code) and open http://localhost:8000."
-    : `${error.message} Check that data.json is in the project root and is valid JSON.`;
+/* If something the app needs cannot be loaded, say so on the page instead of showing an empty app */
+function showLoadError(title, message) {
+  $("#load-error-title").textContent = title;
+  $("#load-error-text").textContent = message;
   $("#load-error").hidden = false;
   statusText.textContent = "DATA NOT LOADED";
   statusPill.dataset.state = "stale";
   $$("button, input, select", app).forEach((control) => { control.disabled = true; });
 }
 
+/* data.json could not be loaded or checked */
+function showDataError(error) {
+  console.error(error);
+  const fromFile = location.protocol === "file:";
+  showLoadError(
+    "Could not load data.json",
+    fromFile
+      ? "Browsers block fetch() for pages opened by double-clicking (file://). Start a local server in the project folder " +
+        "(npm start, python3 -m http.server 8000, or Live Server in VS Code) and open http://localhost:8000."
+      : `${error.message} Check that data.json is in the project root and is valid JSON.`
+  );
+}
+
 async function start() {
+  // Leaflet is loaded from node_modules by index.html. If it is not there, "L" does not exist.
+  if (typeof L === "undefined") {
+    console.error("Leaflet (L) is not defined. Is node_modules/leaflet/dist/leaflet.js loading?");
+    showLoadError("Could not load Leaflet", "The map library is loaded from node_modules/leaflet. Run npm install in the project folder, then reload the page.");
+    return;
+  }
+
   try {
     const data = await loadData();
     checkData(data);
     reportDataQuality(data);
     useData(data);
   } catch (error) {
-    showLoadError(error);
+    showDataError(error);
     return;
   }
 
