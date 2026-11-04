@@ -2,7 +2,7 @@
   "meta": {
     "title": "Flight Tracker sample data (set 2)",
     "replayDate": "Oct 09",
-    "periodSeconds": 4,
+    "periodSeconds": 30,
     "alertFlightId": "AA1402",
     "defaultFlightId": "UA205",
     "notes": [
@@ -25,7 +25,7 @@
     {"code": "BOS", "name": "Boston Logan Intl", "x": 91, "y": 27}
   ],
   "flights": [
-    {"id": "DL881", "flight": "DL 881", "callsign": "DAL881", "tail": "N512DA", "origin": "SEA", "destination": "ATL", "departed": "11:35", "eta": "16:50"},
+    {"id": "DL881", "flight": "DL 881", "callsign": "", "tail": "N512DA", "origin": "SEA", "destination": "ATL", "departed": "11:35", "eta": "16:50"},
     {"id": "UA205", "flight": "UA 205", "callsign": "UAL205", "tail": "N33289", "origin": "SFO", "destination": "ORD", "departed": "12:10", "eta": "17:05"},
     {"id": "AA1402", "flight": "AA 1402", "callsign": "AAL1402", "tail": "N947AN", "origin": "DEN", "destination": "JFK", "departed": "12:40", "eta": "16:20"},
     {"id": "WN617", "flight": "WN 617", "callsign": "SWA617", "tail": "N7712K", "origin": "LAX", "destination": "BOS", "departed": "10:50", "eta": "17:30"},
@@ -40,11 +40,11 @@
       "time": "14:00",
       "positions": {
         "DL881": {"x": 17.7, "y": 25.4, "progress": 12, "altitude": 36000, "speed": 459, "heading": 129},
-        "UA205": {"x": 17.8, "y": 43.2, "progress": 20, "altitude": 38000, "speed": 467, "heading": 74},
+        "UA205": {"x": 17.8, "y": 43.2, "progress": 20, "speed": 467, "heading": 74},
         "AA1402": {"x": 50.0, "y": 43.2, "progress": 30, "altitude": 34000, "speed": 448, "heading": 83},
         "WN617": {"x": 19.2, "y": 63.8, "progress": 8, "altitude": null, "speed": 442, "heading": 63},
         "AC8820": {"x": 71.7, "y": 35.6, "progress": 18, "altitude": 37000, "speed": 459, "heading": 284},
-        "B6330": {"x": 71.4, "y": 33.3, "progress": 35, "altitude": 33000, "speed": 446, "heading": 252},
+        "B6330": {"x": 71.4, "y": 33.3, "progress": 35, "altitude": 0, "speed": 446, "heading": 252},
         "AS92": {"x": 37.4, "y": 37.6, "progress": 40, "altitude": 36000, "speed": 449, "heading": 254},
         "DL1950": {"x": 53.5, "y": 65.5, "progress": 25, "altitude": 35000, "speed": 464, "heading": 268}
       }

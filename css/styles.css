@@ -288,6 +288,12 @@ ul {
   font-weight: 700;
 }
 
+.detail dd.is-missing {
+  font-style: italic;
+  font-weight: 400;
+  color: #777;
+}
+
 /* ---------- STEP 8. Map ----------
    WHY: The map is a positioned surface. Markers and airports are placed on
    it with percentages, which is how they stay lined up when the window resizes.

@@ -64,6 +64,7 @@ function setText(selector, value) {
   if (!node) return;
   const missing = value === null || value === undefined || value === "";
   node.textContent = missing ? "Not available" : value;
+  node.classList.toggle("is-missing", missing);
 }
 
 function setPressed(element, isPressed) {
@@ -168,7 +169,15 @@ function fillDetail(id) {
   setText("#detail-callsign", flight.callsign);
   setText("#detail-departed", flight.departed);
   setText("#detail-eta",      flight.eta);
-  setText("#detail-altitude", position.altitude == null ? null : position.altitude.toLocaleString("en-US") + " ft");
+  let altitudeText;
+if (position.altitude == null) {
+  altitudeText = null;                 // missing -> setText shows "Not available"
+} else if (position.altitude === 0) {
+  altitudeText = "On ground";
+} else {
+  altitudeText = position.altitude.toLocaleString("en-US") + " ft";
+}
+  setText("#detail-altitude", altitudeText);
   setText("#detail-speed",    position.speed    == null ? null : position.speed + " kt");
   setText("#detail-heading",  position.heading  == null ? null : position.heading + "°");
   setText("#detail-progress", position.progress == null ? null : position.progress + "%");
