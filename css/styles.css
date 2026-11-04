@@ -360,3 +360,125 @@ ul {
    YOUR CODE: @media (max-width: 860px) { ... } that makes .layout stack
    vertically (flex-direction: column), gives the sidebar full width,
    and lets the app grow taller than the window.                           */
+/* ---------- Gliding planes ---------- */
+.marker {
+  z-index: 2;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: left var(--move-time, 3s) linear, top var(--move-time, 3s) linear;
+}
+
+.map.no-anim .marker {
+  transition: none;
+}
+
+.marker[aria-pressed="true"] { z-index: 3; }
+.airport { z-index: 1; pointer-events: none; color: #555; }
+.count-badge { z-index: 4; }
+
+/* ---------- Sidebar: keep the list usable with the detail panel open ---------- */
+.sidebar { overflow-y: auto; }
+
+.flight-list {
+  flex: none;
+  max-height: 40vh;
+  min-height: 120px;
+}
+
+/* ---------- Playback bar ---------- */
+.playback-bar {
+  flex: none;
+  padding: 10px 16px;
+  background: var(--light);
+  border-top: var(--line) solid var(--ink);
+}
+
+.playback-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.playback-row input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--ink);
+}
+
+#playback-time {
+  min-width: 70px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.playback-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #555;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 860px) {
+  .app { height: auto; min-height: 100vh; }
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; border-right: 0; border-bottom: var(--line) solid var(--ink); }
+  .map { min-height: 60vh; }
+}
+/* ---------- Live / replay look ---------- */
+.header__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.updated {
+  font-size: 14px;
+}
+
+.updated.is-stale {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* LIVE: solid black pill */
+.app[data-mode="live"] .status-pill {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* REPLAY: dashed pill, dashed map border, and a banner on the map */
+.app[data-mode="replay"] .status-pill {
+  border-style: dashed;
+}
+
+.app[data-mode="replay"] .map {
+  outline: 4px dashed var(--gray);
+  outline-offset: -4px;
+}
+
+.mode-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  padding: 6px 16px;
+  border: var(--line) dashed var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .header {
+    height: auto;
+    padding: 8px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
