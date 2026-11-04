@@ -5,9 +5,12 @@
   "private": true,
   "scripts": {
     "start": "python3 -m http.server 8000",
-    "test": "node tests/quality.test.js"
+    "test": "jest"
   },
   "dependencies": {
     "leaflet": "1.9.4"
+  },
+  "devDependencies": {
+    "jest": "30.5.2"
   }
 }

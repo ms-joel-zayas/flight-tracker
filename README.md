@@ -2,7 +2,7 @@
 
 > **Branch `v4-final` is the Week 9 reference for mentors.** Students work on their own `v4-uxbridge` branch, created from their final `v3-uxbridge` work, and compare with this branch. It is a reference, not an answer key to copy.
 
-A black-and-white working version of the approved Flight Tracker design, built with **HTML, CSS and JavaScript** and one library. No build step. As of Week 8 the flights, airports and map points live in **`data.json`**, and a **replay** steps through up to five time periods, one every 5 seconds. As of Week 9 every place in `data.json` is a **latitude and longitude**, and the map is drawn by **Leaflet** (version 1.9.4, installed with npm) on OpenStreetMap tiles.
+A black-and-white working version of the approved Flight Tracker design, built with **HTML, CSS and JavaScript** and one library (plus Jest for tests). No build step. As of Week 8 the flights, airports and map points live in **`data.json`**, and a **replay** steps through up to five time periods, one every 5 seconds. As of Week 9 every place in `data.json` is a **latitude and longitude**, and the map is drawn by **Leaflet** (version 1.9.4, installed with npm) on OpenStreetMap tiles.
 
 | Language | Job | File |
 |---|---|---|
@@ -11,7 +11,8 @@ A black-and-white working version of the approved Flight Tracker design, built w
 | JavaScript | Behavior: loads the data, builds the page and the Leaflet map from it, reacts to clicks | `js/app.js` |
 | JSON | Data: airports, flights and the latitude/longitude of every flight in each period | `data.json` |
 | JavaScript | Data-quality helpers: empty values, heading check, latitude/longitude check, data summary | `js/quality.js` |
-| JSON | Project record: the app's version (4.0.0), the library it uses (Leaflet 1.9.4) and shortcut commands | `package.json` |
+| JSON | Project record: the app's version (4.0.0), the library it uses (Leaflet 1.9.4), the test tool (Jest 30.5.2) and shortcut commands | `package.json` |
+| JavaScript | Tests (Jest): the answer key for the Week 8 and Week 9 helpers | `tests/quality.test.js` |
 
 ## Run it
 
@@ -78,7 +79,7 @@ Every airport and every position in `data.json` has `lat` and `lon`, in **decima
 
 ## Quality checks and the Challenge answer key
 
-`npm test` (the same as `node tests/quality.test.js`) runs the reference answers for the Week 8 Challenge (the four empty-value cases, `isValidHeading()` and the three findings counted from `data.json`) and the Week 9 latitude/longitude checks. It prints PASS or FAIL for each. `docs/SAMPLE_DATA_DICTIONARY.md` is one possible Aircraft Data Dictionary. It marks the units of altitude, speed and heading as assumptions, because `data.json` does not state them. `docs/DEPENDENCY_RISKS.md` is a sample Week 9 risk log for the libraries and services this app depends on.
+`npm test` runs the answer key with **Jest**, a testing framework that is installed by `npm install` (it is a `devDependency`: it is only for developers, and the page never loads it). Jest finds every `*.test.js` file, runs each `test()` in it, and prints PASS or FAIL with the name of any test that failed. The tests cover the reference answers for the Week 8 Challenge (the four empty-value cases, `isValidHeading()` and the three findings counted from `data.json`) and the Week 9 latitude/longitude checks (`isValidLatitude()`, `isValidLongitude()`, `hasLocation()`, `locationProblem()`, and a damaged copy of `data.json`). Run one group with `npx jest -t "latitude"`. Each check is one `test("what should happen", () => expect(actual).toBe(expected))`; read `tests/quality.test.js` to see the pattern. `docs/SAMPLE_DATA_DICTIONARY.md` is one possible Aircraft Data Dictionary. It marks the units of altitude, speed and heading as assumptions, because `data.json` does not state them. `docs/DEPENDENCY_RISKS.md` is a sample Week 9 risk log for the libraries and services this app depends on.
 
 ## The data: `data.json`
 
@@ -118,7 +119,7 @@ How the periods work:
 flight-tracker/
   index.html        markup for the whole screen (no flight data inside)
   data.json         airports, flights and the periods (lat/lon over time)
-  package.json      app version (4.0.0), the Leaflet dependency, npm scripts
+  package.json      app version (4.0.0), Leaflet (dependency), Jest (devDependency), npm scripts
   package-lock.json the exact versions npm installed (saved in git)
   node_modules/     what npm installed, including Leaflet (NOT saved in git; run npm install)
   css/
@@ -127,7 +128,7 @@ flight-tracker/
     quality.js      empty-value, heading and lat/lon helpers (loaded second)
     app.js          loads data.json, builds the page and the Leaflet map, state, update functions, timer, events
   tests/
-    quality.test.js answer key: run with  npm test
+    quality.test.js Jest answer key: run with  npm test
   docs/
     SAMPLE_DATA_DICTIONARY.md   mentor reference for the data dictionary (now with lat and lon)
     DEPENDENCY_RISKS.md         mentor reference for the Week 9 dependency risk log
@@ -194,4 +195,4 @@ Each block in `index.html` carries a `data-component="..."` name. These are the 
 
 ## Not included on purpose
 
-No live API (Week 10), no sorting or filtering by measures (Week 11), no chart (Week 12), no build tools or bundler, no framework. npm is used only to install and pin Leaflet and to hold shortcut commands.
+No live API (Week 10), no sorting or filtering by measures (Week 11), no chart (Week 12), no build tools or bundler, no framework. npm is used only to install and pin Leaflet and Jest and to hold shortcut commands.

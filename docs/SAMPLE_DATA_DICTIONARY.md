@@ -33,4 +33,4 @@ They do **not** say the unit of `altitude`, `speed` or `heading`, or what a head
 | Valid | Every airport and position has a `lat` between -90 and 90 and a `lon` between -180 and 180 (8 airports and 40 positions, 48 places). Headings run 47 to 287, speeds 402 to 475, altitudes 27,000 to 37,000. All plausible; the range rule (heading 0 to 359) is not written in the file. |
 | Consistent | AC3306, UA640, WN88 and AA319 have an `eta` earlier than the last period (13:00) but progress below 100%. The notes call `eta` a placeholder. |
 
-Run `npm test` (or `node tests/quality.test.js`) to re-check these numbers, the four empty-value cases and the latitude/longitude checks.
+Run `npm test` (Jest) to re-check these numbers, the four empty-value cases and the latitude/longitude checks.

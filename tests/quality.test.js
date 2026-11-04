@@ -1,73 +1,132 @@
-/* Answer key (mentor reference) — Week 8 and Week 9
-   Run from the project folder:   npm test      (or: node tests/quality.test.js)
-   It records PASS or FAIL for the four empty values, the heading check,
-   the three data-quality findings from Week 8, and the latitude/longitude
-   checks added in Week 9. */
+/* Answer key (mentor reference) — Weeks 8 and 9, written for Jest
+   Run from the project folder:   npm test      (Jest finds every *.test.js file)
+   Run one group:                 npx jest -t "latitude"
+   Each test() below is one check. expect(actual).toBe(expected) passes when the two
+   match. Jest prints PASS or FAIL for the file and names every test that failed.
+
+   What is tested: the four empty values and the heading check (Week 8), the three
+   data-quality findings counted from data.json (Week 8), and the latitude and
+   longitude checks (Week 9). These are the pure helpers in js/quality.js. The map
+   itself is checked by looking at it in the browser. */
 
 const fs = require("fs");
 const path = require("path");
-const { emptyKind, formatValue, isValidHeading, isValidLatitude, isValidLongitude, hasLocation, locationProblem, summarizeQuality, findInconsistentEtas } = require("../js/quality.js");
+const {
+  emptyKind, formatValue, isValidHeading, isValidLatitude, isValidLongitude,
+  hasLocation, locationProblem, summarizeQuality, findInconsistentEtas,
+} = require("../js/quality.js");
 
-const results = [];
-function check(label, actual, expected) {
-  const pass = JSON.stringify(actual) === JSON.stringify(expected);
-  results.push({ label, pass, actual, expected });
-}
-
-/* ---- The four empty values (slide: "Test the four empty values") ---- */
-const altitude = (record) => formatValue(record.altitude, " ft", (n) => n.toLocaleString("en-US"));
-check('"altitude": null  -> Not available',            altitude({ altitude: null }).text, "Not available");
-check('(no "altitude" key) -> Not available',           altitude({}).text, "Not available");
-check('"altitude": 0  -> 0 ft (a real zero)',           altitude({ altitude: 0 }).text, "0 ft");
-check('"callsign": ""  -> Not available',               formatValue("").text, "Not available");
-check('"callsign": ""  is flagged as empty text',       emptyKind(""), "empty");
-check('null is reported as null',                       emptyKind(null), "null");
-check('a missing key is reported as missing',           emptyKind(undefined), "missing");
-check('0 is not empty',                                 emptyKind(0), "");
-check('33000 -> 33,000 ft',                             altitude({ altitude: 33000 }).text, "33,000 ft");
-
-/* ---- isValidHeading: true only for numbers from 0 to 359 ---- */
-[[0, true], [268, true], [359, true], [360, false], [-1, false], ["268", false], [null, false], [undefined, false], [NaN, false]]
-  .forEach(([value, expected]) => check(`isValidHeading(${typeof value === "string" ? `"${value}"` : String(value)})`, isValidHeading(value), expected));
-
-/* ---- The findings on the "Inspect Before You Trust" slide, counted from data.json ---- */
 const data = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data.json"), "utf8"));
-const notes = summarizeQuality(data).map((n) => n.text);
-check("Complete: altitude is empty in 5 of 40 positions (12.5%)", notes.some((t) => t.includes("altitude is empty in 5 of 40 positions (12.5%)")), true);
-check("Valid: no heading outside 0-359",                          notes.some((t) => t.startsWith("Valid?")), false);
-check("Consistent: AC3306, UA640, WN88, AA319 have an early ETA", findInconsistentEtas(data), ["AC3306", "UA640", "WN88", "AA319"]);
+const noteTexts = (d) => summarizeQuality(d).map((n) => n.text);
+const copyOfData = () => JSON.parse(JSON.stringify(data));
+
+
+/* ---- Week 8: the four empty values (slide: "Test the four empty values") ---- */
+describe("the four empty values", () => {
+  const altitude = (record) => formatValue(record.altitude, " ft", (n) => n.toLocaleString("en-US"));
+
+  test('"altitude": null shows Not available',        () => expect(altitude({ altitude: null }).text).toBe("Not available"));
+  test("a missing altitude key shows Not available",  () => expect(altitude({}).text).toBe("Not available"));
+  test('"altitude": 0 shows 0 ft (a real zero)',      () => expect(altitude({ altitude: 0 }).text).toBe("0 ft"));
+  test('"callsign": "" shows Not available',          () => expect(formatValue("").text).toBe("Not available"));
+  test("33000 shows 33,000 ft",                       () => expect(altitude({ altitude: 33000 }).text).toBe("33,000 ft"));
+
+  test.each([
+    ["empty text is reported as empty", "", "empty"],
+    ["null is reported as null",        null, "null"],
+    ["a missing key is reported as missing", undefined, "missing"],
+    ["0 is not empty",                  0, ""],
+  ])("emptyKind: %s", (label, value, expected) => expect(emptyKind(value)).toBe(expected));
+});
+
+
+/* ---- Week 8 Challenge answer: heading is valid only for numbers from 0 to 359 ---- */
+describe("isValidHeading", () => {
+  test.each([
+    [0, true], [268, true], [359, true],
+    [360, false], [-1, false], ["268", false], [null, false], [undefined, false], [NaN, false],
+  ])("isValidHeading(%p) is %p", (value, expected) => expect(isValidHeading(value)).toBe(expected));
+});
+
+
+/* ---- Week 8: the findings on the "Inspect Before You Trust" slide, counted from data.json ---- */
+describe("data quality findings in data.json", () => {
+  const notes = noteTexts(data);
+
+  test("Complete: altitude is empty in 5 of 40 positions (12.5%)",
+    () => expect(notes.some((t) => t.includes("altitude is empty in 5 of 40 positions (12.5%)"))).toBe(true));
+  test("Valid: no heading is outside 0-359",
+    () => expect(notes.some((t) => t.includes("outside 0-359"))).toBe(false));
+  test("Consistent: AC3306, UA640, WN88 and AA319 have an early ETA",
+    () => expect(findInconsistentEtas(data)).toEqual(["AC3306", "UA640", "WN88", "AA319"]));
+});
+
 
 /* ---- Week 9: latitude and longitude ---- */
-[[47.4502, true], [0, true], [-90, true], [90, true], [91, false], [-122.3088, false], ["47.4", false], [null, false], [undefined, false]]
-  .forEach(([value, expected]) => check(`isValidLatitude(${typeof value === "string" ? `"${value}"` : String(value)})`, isValidLatitude(value), expected));
-[[-122.3088, true], [0, true], [180, true], [-180, true], [181, false], ["-122", false], [null, false], [undefined, false]]
-  .forEach(([value, expected]) => check(`isValidLongitude(${typeof value === "string" ? `"${value}"` : String(value)})`, isValidLongitude(value), expected));
+describe("latitude", () => {
+  test.each([[47.4502, true], [0, true], [-90, true], [90, true], [91, false], [-122.3088, false], ["47.4", false], [null, false], [undefined, false]])(
+    "isValidLatitude(%p) is %p", (value, expected) => expect(isValidLatitude(value)).toBe(expected));
+});
 
-check("hasLocation: Boston is drawable",                  hasLocation({ lat: 42.3656, lon: -71.0096 }), true);
-check("hasLocation: lat missing is not drawable",         hasLocation({ lon: -71.0096 }), false);
-check("hasLocation: lat null is not drawable",            hasLocation({ lat: null, lon: -71.0096 }), false);
-check("hasLocation: lat 0, lon 0 IS drawable (a real place)", hasLocation({ lat: 0, lon: 0 }), true);
-check("locationProblem: swapped Seattle (out of range) is named", locationProblem({ lat: -122.3088, lon: 47.4502 }).includes("look swapped"), true);
-check("locationProblem: swapped Boston is NOT caught (both numbers stay in range; only the map shows it)", locationProblem({ lat: -71.0096, lon: 42.3656 }), "");
-check("locationProblem: out of range is named",           locationProblem({ lat: 400, lon: 500 }).includes("outside the valid range"), true);
-check("locationProblem: missing key is named",            locationProblem({ lat: 42.3 }), "is missing lat or lon");
-check("locationProblem: a good place has no problem",     locationProblem({ lat: 42.3656, lon: -71.0096 }), "");
+describe("longitude", () => {
+  test.each([[-122.3088, true], [0, true], [180, true], [-180, true], [181, false], ["-122", false], [null, false], [undefined, false]])(
+    "isValidLongitude(%p) is %p", (value, expected) => expect(isValidLongitude(value)).toBe(expected));
+});
 
-/* ---- Week 9: the real data.json uses lat and lon ---- */
-const allPlaces = [...data.airports, ...data.periods.flatMap((p) => Object.values(p.positions))];
-check("Every airport and position has a usable lat and lon (8 airports + 40 positions)", [allPlaces.length, allPlaces.every(hasLocation)], [48, true]);
-check("No x or y is left in data.json",                   allPlaces.some((place) => "x" in place || "y" in place), false);
-check("The quality summary reports no lat/lon problem",   notes.some((t) => /lat|lon/.test(t) && t.startsWith("Valid?")), false);
+describe("hasLocation: can the map draw it?", () => {
+  test("Boston is drawable",                      () => expect(hasLocation({ lat: 42.3656, lon: -71.0096 })).toBe(true));
+  test("a missing lat is not drawable",           () => expect(hasLocation({ lon: -71.0096 })).toBe(false));
+  test("a null lat is not drawable",              () => expect(hasLocation({ lat: null, lon: -71.0096 })).toBe(false));
+  test("lat 0, lon 0 IS drawable (a real place)", () => expect(hasLocation({ lat: 0, lon: 0 })).toBe(true));
+  test("nothing at all is not drawable",          () => expect(hasLocation(undefined)).toBe(false));
+});
 
-const broken = JSON.parse(JSON.stringify(data));
-broken.periods[2].positions.AC1187 = { ...broken.periods[2].positions.AC1187, lat: -122.3, lon: 38.5 };       // lat and lon typed in the wrong order
-broken.airports[3].lon = null;                                                                                 // DEN loses its longitude
-const brokenNotes = summarizeQuality(broken).map((n) => n.text);
-check("A swapped lat/lon is reported for AC1187 in period 3", brokenNotes.some((t) => t.includes("AC1187 in period 3") && t.includes("look swapped")), true);
-check("A missing airport lon is reported for DEN",            brokenNotes.some((t) => t.includes("airport DEN is missing lat or lon")), true);
+describe("locationProblem: say what is wrong", () => {
+  test("a swapped Seattle (out of range) is named", () => {
+    expect(locationProblem({ lat: -122.3088, lon: 47.4502 })).toContain("look swapped");
+  });
+  test("a swapped Boston is NOT caught: both numbers stay in range, only the map shows it", () => {
+    expect(locationProblem({ lat: -71.0096, lon: 42.3656 })).toBe("");
+  });
+  test("an out-of-range pair is named", () => {
+    expect(locationProblem({ lat: 400, lon: 500 })).toContain("outside the valid range");
+  });
+  test("a missing key is named", () => {
+    expect(locationProblem({ lat: 42.3 })).toBe("is missing lat or lon");
+  });
+  test("a good place has no problem", () => {
+    expect(locationProblem({ lat: 42.3656, lon: -71.0096 })).toBe("");
+  });
+});
 
-/* ---- Print the results ---- */
-results.forEach((r) => console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.label}${r.pass ? "" : `   (got ${JSON.stringify(r.actual)}, expected ${JSON.stringify(r.expected)})`}`));
-const failed = results.filter((r) => !r.pass).length;
-console.log(`\n${results.length - failed} of ${results.length} passed`);
-process.exit(failed === 0 ? 0 : 1);
+describe("the real data.json uses lat and lon", () => {
+  const places = [...data.airports, ...data.periods.flatMap((p) => Object.values(p.positions))];
+
+  test("every airport and position has a usable lat and lon (8 airports + 40 positions)", () => {
+    expect(places).toHaveLength(48);
+    expect(places.every(hasLocation)).toBe(true);
+  });
+  test("no x or y is left in data.json", () => {
+    expect(places.some((place) => "x" in place || "y" in place)).toBe(false);
+  });
+  test("the quality summary reports no lat/lon problem", () => {
+    expect(noteTexts(data).some((t) => t.startsWith("Valid?") && /lat|lon/.test(t))).toBe(false);
+  });
+});
+
+describe("a damaged copy of data.json is reported", () => {
+  const broken = copyOfData();
+  broken.periods[2].positions.AC1187 = { ...broken.periods[2].positions.AC1187, lat: -122.3, lon: 38.5 };   // lat and lon typed in the wrong order
+  broken.airports[3].lon = null;                                                                           // DEN loses its longitude
+  const notes = noteTexts(broken);
+
+  test("a swapped lat/lon is reported for AC1187 in period 3", () => {
+    expect(notes.some((t) => t.includes("AC1187 in period 3") && t.includes("look swapped"))).toBe(true);
+  });
+  test("a missing airport lon is reported for DEN", () => {
+    expect(notes.some((t) => t.includes("airport DEN is missing lat or lon"))).toBe(true);
+  });
+  test("the original data is not changed by the copy", () => {
+    expect(hasLocation(data.airports[3])).toBe(true);
+  });
+});
