@@ -4,81 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flight Tracker</title>
-  <!--
-    WHY: <head> holds information ABOUT the page, not things you see on it.
-    The <link> below connects this page to your CSS file. Without it the
-    page shows in plain browser style no matter what you write in styles.css.
-  -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
-<!--
-  =====================================================================
-  FLIGHT TRACKER — STARTER (HTML = structure)
-  =====================================================================
-  HTML decides WHAT is on the screen. It does not decide how it looks
-  (that is CSS) or what happens on a click (that is JavaScript).
+<div class="app" id="app" data-mode="live">
 
-  Build the page top to bottom in the order of the steps below. After each
-  step, save and look at the browser before moving on.
-  Compare with the finished version on the v1-final branch when you are stuck.
-
-  Tips:
-  - Use real elements for real jobs: <button> for things you click,
-    <input> and <select> for things you type or pick, <ul> for lists.
-  - Give an id="..." to anything JavaScript needs to find later.
-  - Give a class="..." to anything CSS needs to style.
-
-  NEW: the flight list, the map markers and the airport labels are no longer
-  typed here. JavaScript builds them from data/flights.json.
--->
-
-<!-- STEP 1 — App wrapper
-     WHY: One outer <div> holds the whole app so CSS can size it to fill the
-     browser window. Put everything in STEPS 2-5 inside it.
-     YOUR CODE: <div class="app" id="app"> ... </div>                          -->
-<div class="app" id="app" data-panel="closed">
-
-  <!-- STEP 2 — Header
-       WHY: The title and status live at the top so users always know where
-       they are and whether the data is live.
-       YOUR CODE: a <header> containing an <h1> with "FLIGHT TRACKER" and a
-       <p> for the connection status (for example "LIVE").
-       Give the status <p> an id (for example "status-text") so JavaScript can
-       change its text later.                                                  -->
+  <!-- Header: title on the left, live/replay status on the right -->
   <header class="header">
     <h1>FLIGHT TRACKER</h1>
-    <p class="status-pill" id="status-text">LOADING</p>
+    <div class="header__right">
+      <span class="updated" id="updated-text" hidden></span>
+      <p class="status-pill" id="status-text">LOADING</p>
+    </div>
   </header>
 
   <div class="layout">
 
-    <!-- STEP 3 — Sidebar (left panel)
-         WHY: Search, filters and the flight list belong together in one column.
-         YOUR CODE: an <aside class="sidebar"> that contains:
-           a) Search: an <input type="search"> with a <label> (the label can be
-              visually hidden, but it must exist for screen readers).
-           b) Filters: two <select> elements, "Origin" and "Dest", each with a
-              first empty option and then airport codes (ATL, BOS, DEN, JFK,
-              LAX, ORD, SEA, SFO).
-           c) Flight list: a <ul> where each <li> holds one <button> per flight.
-              Start with just 2 or 3 flights. Show the flight name (AC 2210)
-              and route (BOS → ORD).
-              Store extra details on the button with data-* attributes, such as
-              data-origin="BOS" data-dest="ORD". JavaScript can read these
-              later, so you do not need a database yet.
-           d) Empty message: a <p hidden> saying "No flights match" that
-              JavaScript shows when a search finds nothing.                       -->
+    <!-- Sidebar: search, filters, flight list, detail panel -->
     <aside class="sidebar">
 
-      <!-- a) Search -->
       <div class="search">
         <label for="search-input" class="visually-hidden">Search flights</label>
         <input type="search" id="search-input" class="field" placeholder="Search flight # or call-sign">
       </div>
 
-      <!-- b) Filters -->
       <div class="filters">
         <label for="filter-origin" class="visually-hidden">Origin</label>
         <select id="filter-origin" class="field">
@@ -107,18 +57,10 @@
         </select>
       </div>
 
-      <!-- c) Flight list (empty on purpose: JavaScript adds one <li> per flight) -->
       <ul class="flight-list" id="flight-list"></ul>
 
-      <!-- d) Empty message -->
       <p id="empty-message" hidden>No flights match</p>
 
-      <!-- STEP 4 — Detail panel
-           WHY: When a flight is picked, the user needs more information about it.
-           YOUR CODE: a <section> (hidden at first) with a title, a close <button>,
-           and <dl> (description list) rows for origin, destination, departed,
-           ETA, altitude and speed. Put an id on every value that JavaScript will
-           fill in.                                                                -->
       <section class="detail" id="detail-panel" hidden>
         <div class="detail__top">
           <h2 id="detail-title">Flight</h2>
@@ -157,26 +99,50 @@
 
     </aside>
 
-    <!-- STEP 5 — Map area
-         WHY: The map is the main view. For now it is a placeholder, not a real map.
-         YOUR CODE: a <section class="map"> containing:
-           a) A count badge, e.g. "8 AIRCRAFT" (give it an id).
-           b) One <button class="marker"> per flight. Reuse the same flight ids
-              as in the list so the two stay linked (data-id="AC2210").
-           c) A few airport labels using <span>.                                  -->
+    <!-- Map (JavaScript adds the markers and airport labels here) -->
     <div class="map" id="map-area">
-      <!-- a) Count badge. The markers (b) and airport labels (c) are added here by JavaScript. -->
       <span class="badge count-badge" id="count-badge">0 AIRCRAFT</span>
+      <div class="mode-banner" id="mode-banner" hidden>REPLAY · NOT LIVE</div>
     </div>
 
-  </div>
-</div>
+  </div><!-- end .layout -->
 
-<!-- STEP 6 — Connect JavaScript
-     WHY: Put the <script> LAST, just before </body>. The browser reads the
-     page top to bottom, so the elements must exist before JavaScript tries
-     to find them.
-     YOUR CODE: <script src="js/app.js"></script>                              -->
+  <!-- Live / replay controls: under the map, not on top of it -->
+  <div class="playback-bar">
+    <div class="playback-row">
+      <button class="btn" id="mode-live" type="button" aria-pressed="true">● LIVE</button>
+      <button class="btn" id="mode-replay" type="button" aria-pressed="false">REPLAY</button>
+
+      <label for="playback-date">DATE</label>
+      <button class="btn" id="playback-prev-day" type="button" aria-label="Previous day">◀ DAY</button>
+      <input type="date" id="playback-date" class="field">
+      <button class="btn" id="playback-next-day" type="button" aria-label="Next day">DAY ▶</button>
+
+      <span class="badge" id="playback-time">00:00</span>
+
+      <label for="playback-speed">SPEED</label>
+      <select id="playback-speed" class="field">
+        <option value="1">1x</option>
+        <option value="2">2x</option>
+        <option value="5">5x</option>
+        <option value="10">10x</option>
+      </select>
+    </div>
+
+    <div class="playback-row">
+      <button class="btn" id="playback-start" type="button" aria-label="Jump to start">|◀</button>
+      <button class="btn" id="playback-toggle" type="button">PLAY</button>
+      <button class="btn" id="playback-end" type="button" aria-label="Jump to end">▶|</button>
+      <input type="range" id="playback-timeline" min="0" max="95" value="0" step="1" aria-label="Playback timeline">
+    </div>
+
+    <div class="playback-labels">
+      <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+    </div>
+  </div>
+
+</div><!-- end .app -->
+
 <script src="js/app.js"></script>
 </body>
 </html>
