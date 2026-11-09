@@ -9,6 +9,10 @@
    Each date loads a "day" of 96 snapshots (one every 15 minutes).
    If data/history/YYYY-MM-DD.json exists it is used; otherwise a day is
    generated from data/flights.json (simulated traffic).
+
+   WEEK 9: the planes and airports are drawn on a real Leaflet map.
+   Every airport and every position has a lat and a lon (degrees).
+   Leaflet takes a place as [lat, lon]: latitude FIRST.
    ===================================================================== */
 
 const DATA_URL = "data/flights.json";
@@ -95,6 +99,9 @@ function dateShift(iso) {
 // then sits on the ground for GROUND_MINUTES. The flights are staggered evenly,
 // so at any moment about a quarter of them (2 of 8) are on the ground and the
 // rest are in the air, including at midnight and at the moment live mode opens.
+//
+// Positions are lat and lon (degrees). A plane on the ground has NO entry in
+// "positions" at all, which is normal and not a data error.
 function generateDay(base, isoDate) {
   const airports = {};
   base.airports.forEach((a) => { airports[a.code] = a; });
@@ -122,18 +129,23 @@ function generateDay(base, isoDate) {
 
       if (phase >= airMinutes) return;               // on the ground right now
 
-      const p  = phase / airMinutes;                 // 0 = just took off, 1 = landing
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
+      const p    = phase / airMinutes;               // 0 = just took off, 1 = landing
+      const dLat = to.lat - from.lat;
+      const dLon = to.lon - from.lon;
       const ramp = Math.min(1, p / 0.1, (1 - p) / 0.1);   // climb / descend
 
+      // Placeholder: a straight line between the airports. Real flights curve.
+      // Heading is measured clockwise from north (0 = north, 90 = east).
+      const meanLat = (from.lat + to.lat) / 2 * Math.PI / 180;
+      const heading = Math.round((Math.atan2(dLon * Math.cos(meanLat), dLat) * 180 / Math.PI + 360) % 360);
+
       positions[f.id] = {
-        x: from.x + dx * p,
-        y: from.y + dy * p,
+        lat: from.lat + dLat * p,
+        lon: from.lon + dLon * p,
         progress: Math.round(p * 100),
         altitude: ref.altitude == null ? null : Math.max(1000, Math.round(ref.altitude * ramp / 100) * 100),
         speed: ref.speed,
-        heading: Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360)
+        heading: heading
       };
     });
 
@@ -191,7 +203,13 @@ let playbackTimer = null;   // replay timer
 let liveTimer     = null;   // refreshes live data every 5 s
 let tickTimer     = null;   // live clock, slider and "Updated Ns ago" every 1 s
 let flightRows = [];
-let markers    = [];
+
+// The Leaflet map. It is built once; airports and planes live in two layer
+// groups so a new day can clear them and draw again.
+let map = null;
+let airportLayer = null;
+let planeLayer = null;
+let leafletMarkers = {};    // flight id -> Leaflet marker
 
 
 /* ---------- STEP 2. State ---------- */
@@ -239,17 +257,46 @@ function setPressed(element, isPressed) {
   element.setAttribute("aria-pressed", String(isPressed));
 }
 
+// Leaflet takes a place as [lat, lon]: latitude FIRST, then longitude.
+function toLatLng(place) {
+  return [place.lat, place.lon];
+}
+
+// True only if lat and lon are real numbers in the allowed range.
+// (lat: -90 to 90, lon: -180 to 180. A real 0 is fine.)
+function hasUsablePosition(position) {
+  return Boolean(position) &&
+    Number.isFinite(position.lat) && Number.isFinite(position.lon) &&
+    Math.abs(position.lat) <= 90 && Math.abs(position.lon) <= 180;
+}
+
+// Text for the popup: the value with its unit, or "Not available" if missing.
+function formatValue(value, suffix) {
+  if (value === null || value === undefined || value === "") return "Not available";
+  const shown = typeof value === "number" ? value.toLocaleString("en-US") : value;
+  return shown + (suffix || "");
+}
+
+// The HTML shown inside a marker's popup.
+function popupHtml(flight, position) {
+  return "<strong>" + flight.flight + "</strong><br>" +
+    flight.origin + " → " + flight.destination + "<br>" +
+    "Callsign: " + formatValue(flight.callsign) + "<br>" +
+    "Altitude: " + formatValue(position.altitude, " ft") + "<br>" +
+    "Speed: " + formatValue(position.speed, " kt");
+}
+
+// The real <button> inside a plane marker (it only exists while the marker is on the map).
+function planeButton(id) {
+  const marker = leafletMarkers[id];
+  const element = marker && marker.getElement();
+  return element ? element.querySelector("button") : null;
+}
+
 
 /* ---------- STEP 3. Build the page from the data ---------- */
 function buildPage(data) {
-  data.airports.forEach((airport) => {
-    const label = el("span", "airport", airport.code);
-    label.style.setProperty("--x", airport.x + "%");
-    label.style.setProperty("--y", airport.y + "%");
-    label.title = airport.name;
-    mapArea.append(label);
-  });
-
+  // One list row per flight. (The map markers are made in buildMap.)
   data.flights.forEach((flight) => {
     state.flightsById[flight.id] = flight;
 
@@ -269,48 +316,93 @@ function buildPage(data) {
     item.append(row);
     flightList.append(item);
 
-    const marker = el("button", "btn marker", flight.flight);
-    marker.type = "button";
-    marker.dataset.id = flight.id;
-    marker.setAttribute("aria-label", flight.flight + ", " + flight.origin + " to " + flight.destination);
-    setPressed(marker, false);
-    marker.addEventListener("click", () => selectFlight(flight.id));
-    mapArea.append(marker);
-
     flightRows.push(row);
-    markers.push(marker);
+  });
+}
+
+// Make the Leaflet map (once), then the airport labels and one marker per flight.
+function buildMap(data) {
+  if (!map) {
+    // 1. an empty map inside <div id="map-canvas">
+    map = L.map("map-canvas", { minZoom: 3 });
+
+    // 2. the background pictures (the credit line is required by OpenStreetMap)
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    tiles.on("tileerror", () => {
+      console.warn("Map tiles could not load (no internet?). Aircraft are still drawn.");
+    });
+
+    airportLayer = L.layerGroup().addTo(map);
+    planeLayer   = L.layerGroup().addTo(map);
+  }
+
+  // Remove the previous day's airports and markers.
+  airportLayer.clearLayers();
+  planeLayer.clearLayers();
+  leafletMarkers = {};
+
+  // 3. zoom so every airport fits
+  map.fitBounds(data.airports.map(toLatLng));
+
+  // Airports: one label per airport, placed by lat and lon.
+  data.airports.forEach((airport) => {
+    L.marker(toLatLng(airport), {
+      interactive: false,
+      icon: L.divIcon({
+        className: "airport-icon",
+        html: '<span title="' + airport.name + '">' + airport.code + "</span>",
+        iconSize: [40, 16]
+      })
+    }).addTo(airportLayer);
+  });
+
+  // 4. an aircraft: a marker drawn as HTML (a real button).
+  //    It starts at [0, 0] and is NOT added to the map yet: showSnapshot()
+  //    moves it to the right place, and only adds it if the position is usable.
+  data.flights.forEach((flight) => {
+    const icon = L.divIcon({
+      className: "plane-icon",
+      html: '<button type="button" class="btn plane-btn" aria-pressed="false">' + flight.flight + "</button>",
+      iconSize: [84, 30],
+      iconAnchor: [42, 15]
+    });
+    const marker = L.marker([0, 0], { icon, keyboard: false });
+
+    // 6. a popup whose text we can change
+    marker.bindPopup("");
+    marker.on("click", () => selectFlight(flight.id));
+
+    leafletMarkers[flight.id] = marker;
   });
 }
 
 
 /* ---------- STEP 4. Show one snapshot (live or replay) ---------- */
+// (jump is kept so the rest of the code does not change. Leaflet markers move
+// straight to their new place, so there is no gliding animation to skip.)
 function showSnapshot(period, jump) {
   state.currentPeriod = period;
 
-  if (jump) mapArea.classList.add("no-anim");
+  Object.keys(leafletMarkers).forEach((id) => {
+    const marker = leafletMarkers[id];
+    const position = period.positions[id];
 
-  markers.forEach((marker) => {
-    const position = period.positions[marker.dataset.id];
-    const wasHidden = marker.hidden;
-
-    marker.hidden = !position;
-
-    if (position) {
-      // A plane that just appeared should not glide in from its old spot.
-      if (wasHidden) marker.style.transition = "none";
-      marker.style.setProperty("--x", position.x + "%");
-      marker.style.setProperty("--y", position.y + "%");
-      if (wasHidden) {
-        void marker.offsetWidth;
-        marker.style.transition = "";
+    if (hasUsablePosition(position)) {
+      marker.setLatLng(toLatLng(position));
+      marker.setPopupContent(popupHtml(state.flightsById[id], position));
+      if (!planeLayer.hasLayer(marker)) planeLayer.addLayer(marker);   // show it
+    } else {
+      // No entry at all = the plane is on the ground (normal).
+      // An entry with a bad or missing lat/lon = a data problem: say so.
+      if (position) {
+        console.warn("No usable lat/lon for " + id + " at " + period.time);
       }
+      planeLayer.removeLayer(marker);                                  // leave it off the map
     }
   });
-
-  if (jump) {
-    void mapArea.offsetWidth;
-    mapArea.classList.remove("no-anim");
-  }
 
   // Clock, slider and the status pill.
   if (state.mode === "live") {
@@ -329,6 +421,7 @@ function showSnapshot(period, jump) {
   updateCount();
 
   if (state.selectedId) fillDetail(state.selectedId);
+  updateMarkerStates();     // pressed / dimmed look for the markers
 }
 
 // Replay: show snapshot number `index` of the loaded day.
@@ -344,7 +437,7 @@ function fillDetail(id) {
   const flight   = state.flightsById[id];
   const position = state.currentPeriod.positions[id] || {};
 
-  detailTitle.textContent = flight.flight + (position.x === undefined ? " (on ground)" : "");
+  detailTitle.textContent = flight.flight + (position.lat === undefined ? " (on ground)" : "");
 
   setText("#detail-origin",   flight.origin);
   setText("#detail-dest",     flight.destination);
@@ -352,13 +445,13 @@ function fillDetail(id) {
   setText("#detail-departed", flight.departed);
   setText("#detail-eta",      flight.eta);
   let altitudeText;
-if (position.altitude == null) {
-  altitudeText = null;                 // missing -> setText shows "Not available"
-} else if (position.altitude === 0) {
-  altitudeText = "On ground";
-} else {
-  altitudeText = position.altitude.toLocaleString("en-US") + " ft";
-}
+  if (position.altitude == null) {
+    altitudeText = null;                 // missing -> setText shows "Not available"
+  } else if (position.altitude === 0) {
+    altitudeText = "On ground";
+  } else {
+    altitudeText = position.altitude.toLocaleString("en-US") + " ft";
+  }
   setText("#detail-altitude", altitudeText);
   setText("#detail-speed",    position.speed    == null ? null : position.speed + " kt");
   setText("#detail-heading",  position.heading  == null ? null : position.heading + "°");
@@ -367,17 +460,35 @@ if (position.altitude == null) {
 
 function selectFlight(id) {
   state.selectedId = id;
-  flightRows.forEach((row) => setPressed(row, row.dataset.id === id));
-  markers.forEach((marker) => setPressed(marker, marker.dataset.id === id));
+  updateMarkerStates();
   fillDetail(id);
   detailPanel.hidden = false;
+
+  // open the popup if this aircraft is on the map right now
+  const marker = leafletMarkers[id];
+  if (marker && planeLayer.hasLayer(marker)) marker.openPopup();
 }
 
 function closeDetail() {
   state.selectedId = null;
-  flightRows.forEach((row) => setPressed(row, false));
-  markers.forEach((marker) => setPressed(marker, false));
+  updateMarkerStates();
   detailPanel.hidden = true;
+  if (map) map.closePopup();
+}
+
+// Keep the list rows and the map markers in step with the state:
+// the selected flight looks "pressed", flights that do not match the search are dimmed.
+function updateMarkerStates() {
+  flightRows.forEach((row) => {
+    const id = row.dataset.id;
+    setPressed(row, id === state.selectedId);
+
+    const button = planeButton(id);
+    if (button) {
+      setPressed(button, id === state.selectedId);
+      button.classList.toggle("is-dimmed", !flightMatches(row));   // dim, don't hide
+    }
+  });
 }
 
 
@@ -396,8 +507,9 @@ function flightMatches(row) {
 // Count = planes in the air right now that match the search and filters.
 function updateCount() {
   let airborne = 0;
-  flightRows.forEach((row, i) => {
-    if (flightMatches(row) && !markers[i].hidden) airborne++;
+  flightRows.forEach((row) => {
+    const marker = leafletMarkers[row.dataset.id];
+    if (flightMatches(row) && marker && planeLayer.hasLayer(marker)) airborne++;
   });
   countBadge.textContent = airborne + " AIRCRAFT";
 }
@@ -409,12 +521,10 @@ function renderFlights() {
     const matches = flightMatches(row);
     row.parentElement.hidden = !matches;
 
-    const marker = markers.find((m) => m.dataset.id === row.dataset.id);
-    if (marker) marker.classList.toggle("is-dimmed", !matches);
-
     if (matches) visibleCount++;
   });
 
+  updateMarkerStates();     // dim the markers that don't match
   updateCount();
   emptyMessage.hidden = visibleCount > 0;
 }
@@ -476,8 +586,8 @@ function buildLiveSnapshot() {
     if (pa && pb) {
       positions[id] = {
         ...pa,
-        x: pa.x + (pb.x - pa.x) * frac,
-        y: pa.y + (pb.y - pa.y) * frac,
+        lat: pa.lat + (pb.lat - pa.lat) * frac,
+        lon: pa.lon + (pb.lon - pa.lon) * frac,
         progress: Math.round(pa.progress + (pb.progress - pa.progress) * frac)
       };
     } else {
@@ -497,7 +607,7 @@ function buildLiveSnapshot() {
 // >>> REAL LIVE DATA GOES HERE <<<
 // Right now this is simulated. To use a real flight-data API later, fetch it
 // here and return an object shaped like { index, minutes, time, positions },
-// where positions is { "UA205": { x, y, progress, altitude, speed, heading } }.
+// where positions is { "UA205": { lat, lon, progress, altitude, speed, heading } }.
 // If the request fails, throw an error and the page shows "CONNECTION LOST".
 async function fetchLiveSnapshot() {
   return buildLiveSnapshot();
@@ -589,7 +699,6 @@ function setMode(mode) {
 
   if (isLive) {
     stopPlayback();
-    mapArea.style.setProperty("--move-time", (LIVE_REFRESH_MS * 0.9 / 1000) + "s");
     startLive();
   } else {
     stopLive();
@@ -668,11 +777,6 @@ function startPlayback() {
 function updatePlaybackSpeed() {
   if (!state.data) return;
 
-  const speed = Number(playbackSpeed.value);
-  const baseSeconds = state.data.meta.periodSeconds || 4;
-
-  mapArea.style.setProperty("--move-time", (baseSeconds * 0.9 / speed) + "s");
-
   // Restart the timer if playback is already running.
   if (state.playing) {
     stopPlayback();
@@ -717,12 +821,10 @@ async function loadDay(date, mode) {
       throw new Error("The selected day has no playback data.");
     }
 
-    // Remove the previous day's airports and markers.
-    mapArea.querySelectorAll(".airport, .marker").forEach((node) => node.remove());
+    // Remove the previous day's list rows (buildMap clears the map layers).
     flightList.innerHTML = "";
 
     flightRows = [];
-    markers = [];
     state.flightsById = {};
 
     state.data = data;
@@ -732,6 +834,7 @@ async function loadDay(date, mode) {
     detailPanel.hidden = true;
 
     buildPage(data);
+    buildMap(data);
 
     playbackTimeline.min = 0;
     playbackTimeline.value = 0;
@@ -811,6 +914,15 @@ nextDayBtn.addEventListener("click", () => shiftDay(1));
 
 /* ---------- STEP 12. Start-up ---------- */
 async function start() {
+  // Leaflet must be loaded (npm install, then the script tag in index.html).
+  if (typeof L === "undefined") {
+    console.error("Leaflet did not load. Did you run npm install? Is the script path in index.html right?");
+    statusText.textContent = "MAP ERROR";
+    emptyMessage.textContent = "Could not load Leaflet. Run npm install in the project folder, then reload the page.";
+    emptyMessage.hidden = false;
+    return;
+  }
+
   // The clock starts at the real time of day and keeps running in both modes,
   // so "what has already happened today" is the same in live and replay.
   state.liveStartMinutes = nowMinutes();

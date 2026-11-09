@@ -1,0 +1,24 @@
+{
+  "name": "flight-tracker",
+  "version": "1.0.0",
+  "description": "Welcome! In this project you will build a **Flight Tracker** web page using only **HTML, CSS and JavaScript**. No build step, no libraries, no data source.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ms-joel-zayas/flight-tracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ms-joel-zayas/flight-tracker/issues"
+  },
+  "homepage": "https://github.com/ms-joel-zayas/flight-tracker#readme",
+  "dependencies": {
+    "leaflet": "1.9.4"
+  }
+}
