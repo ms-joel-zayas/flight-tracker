@@ -1,20 +1,25 @@
 {
   "name": "flight-tracker",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
-  "description": "Student flight tracker wireframe with a lightweight live-data backend.",
+  "description": "MatrixSpace and Uxbridge HS flight tracker with a Leaflet frontend and lightweight live-data backend.",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node --env-file=.env backend/server.js",
     "dev": "node --watch --env-file=.env backend/server.js",
-    "test": "node --test"
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "node --test test/*.test.js",
+    "test:frontend": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "express": "^5.3.0",
     "leaflet": "1.9.4"
+  },
+  "devDependencies": {
+    "jest": "30.5.2"
   }
 }

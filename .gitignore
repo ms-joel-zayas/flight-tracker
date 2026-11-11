@@ -3,4 +3,5 @@ node_modules/
 backend/data/
 *.db-shm
 *.db-wal
-
+Claude outputs
+.fallow

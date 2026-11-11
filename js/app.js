@@ -2,11 +2,8 @@ import {
   ApiError,
   aircraftName,
   buildTimeWindow,
-  collectAirports,
   formatAge,
   formatClock,
-  projectPosition,
-  projectedAircraft,
   requestJson,
 } from "./api.js";
 
@@ -21,8 +18,8 @@ const filterDest = $("#filter-dest");
 const flightList = $("#flight-list");
 const emptyNote = $("#empty-note");
 const aircraftCount = $("#aircraft-count");
-const mapLayer = $("#map-layer");
-const mapPaths = $(".map__paths");
+const mapArea = $("#map");
+const mapNote = $("#map-note");
 const detailPanel = $("#detail-panel");
 const detailStatus = $("#detail-status");
 const statusPill = $("#status-pill");
@@ -34,13 +31,17 @@ const replayDate = $("#replay-date");
 const periodText = $("#replay-period");
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 const state = {
   meta: {},
   aircraft: [],
-  airports: new Map(),
+  liveAirports: new Map(),
+  replayAirports: new Map(),
   detailsById: new Map(),
   historyById: new Map(),
+  replayDates: [],
   replayFrames: [],
   replayTruncated: false,
   replayLoading: false,
@@ -61,11 +62,19 @@ const state = {
   replayRequest: null,
   lastError: null,
   dismissedAlerts: new Set(),
+  mapViewInitialized: false,
 };
 
 const rowById = new Map();
 const markerById = new Map();
+const mapMarkerById = new Map();
 const pathById = new Map();
+
+let map = null;
+let airportLayer = null;
+let aircraftLayer = null;
+let pathLayer = null;
+let suppressPopupClose = false;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -77,14 +86,37 @@ function esc(value) {
   })[character]);
 }
 
-function displayValue(value, suffix = "") {
-  return value === null || value === undefined || value === ""
-    ? "Not available"
-    : `${value}${suffix}`;
-}
-
 function simplify(value) {
   return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function displayValue(value) {
+  return value === null || value === undefined || value === ""
+    ? "Not available"
+    : String(value);
+}
+
+function hasLocation(item) {
+  return Number.isFinite(item?.latitude)
+    && Number.isFinite(item?.longitude)
+    && item.latitude >= -90
+    && item.latitude <= 90
+    && item.longitude >= -180
+    && item.longitude <= 180;
+}
+
+function toLatLng(item) {
+  return [item.latitude, item.longitude];
+}
+
+function replayPoint(point) {
+  const id = point.flightSessionId || point.id;
+  return {
+    ...point,
+    id,
+    aircraftId: point.id,
+    emergency: point.emergencyActive ? { reason: "Emergency" } : null,
+  };
 }
 
 function liveAircraftById(id) {
@@ -92,32 +124,23 @@ function liveAircraftById(id) {
 }
 
 function replayAircraft() {
-  const frame = state.replayFrames[state.replayIndex];
-  if (!frame) return [];
-  return frame.aircraft.map((point) => {
-    const live = liveAircraftById(point.id) || {};
-    return {
-      ...live,
-      ...point,
-      emergency: point.emergencyActive ? { reason: "Emergency" } : null,
-    };
-  });
+  return (state.replayFrames[state.replayIndex]?.aircraft || []).map(replayPoint);
 }
 
 function currentAircraft() {
   return state.mode === "replay" ? replayAircraft() : state.aircraft;
 }
 
-function projectedCurrentAircraft() {
-  return currentAircraft()
-    .map((aircraft) => projectedAircraft(aircraft, state.meta.region))
-    .filter(Boolean);
+function currentAirports() {
+  return state.mode === "replay" ? state.replayAirports : state.liveAirports;
 }
 
 function currentAircraftById(id) {
-  const current = currentAircraft().find((aircraft) => aircraft.id === id) || liveAircraftById(id);
+  const current = currentAircraft().find((aircraft) => aircraft.id === id);
+  if (state.mode === "replay") return current || null;
+
   const detail = state.detailsById.get(id);
-  if (!current || !detail) return detail || current;
+  if (!current || !detail) return detail || current || null;
   return {
     ...detail,
     ...current,
@@ -132,12 +155,30 @@ function currentAircraftById(id) {
   };
 }
 
+function collectAirports(aircraft) {
+  const airports = new Map();
+  for (const item of aircraft) {
+    for (const waypoint of item.route?.waypoints || []) {
+      if (!waypoint.code || !hasLocation(waypoint)) continue;
+      airports.set(waypoint.code, waypoint);
+    }
+  }
+  return airports;
+}
+
+function normalizeReplayAirports(airports) {
+  return new Map((airports || [])
+    .filter((airport) => airport.code && hasLocation(airport))
+    .map((airport) => [airport.code, airport]));
+}
+
 function flightMatches(aircraft) {
   if (aircraft.emergency) return true;
   const searchable = simplify([
     aircraftName(aircraft),
     aircraft.callsign,
     aircraft.tailNumber,
+    aircraft.aircraftId,
     aircraft.id,
   ].join(" "));
   return searchable.includes(simplify(state.search))
@@ -148,8 +189,9 @@ function flightMatches(aircraft) {
 function renderFilters() {
   const previousOrigin = state.origin;
   const previousDest = state.dest;
-  const origins = [...new Set(state.aircraft.map((item) => item.origin).filter(Boolean))].sort();
-  const destinations = [...new Set(state.aircraft.map((item) => item.destination).filter(Boolean))].sort();
+  const aircraft = currentAircraft();
+  const origins = [...new Set(aircraft.map((item) => item.origin).filter(Boolean))].sort();
+  const destinations = [...new Set(aircraft.map((item) => item.destination).filter(Boolean))].sort();
 
   filterOrigin.innerHTML = '<option value="">Origin ▾</option>'
     + origins.map((code) => `<option value="${esc(code)}">${esc(code)}</option>`).join("");
@@ -164,8 +206,7 @@ function renderFilters() {
 
 function buildFlightList() {
   rowById.clear();
-  const aircraft = currentAircraft();
-  flightList.innerHTML = aircraft.map((item) => `
+  flightList.innerHTML = currentAircraft().map((item) => `
     <li>
       <button class="flight-row${item.emergency ? " is-alert" : ""}" type="button"
               data-id="${esc(item.id)}" aria-pressed="${item.id === state.selectedId}">
@@ -180,64 +221,65 @@ function buildFlightList() {
   $$(".flight-row", flightList).forEach((row) => rowById.set(row.dataset.id, row));
 }
 
-function pointInsideMap(point) {
-  return point && point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100;
+function initializeMap() {
+  map = globalThis.L.map("map-canvas", { minZoom: 3 });
+  const tiles = globalThis.L.tileLayer(TILE_URL, {
+    maxZoom: 19,
+    attribution: TILE_ATTRIBUTION,
+    referrerPolicy: "strict-origin-when-cross-origin",
+  }).addTo(map);
+  tiles.on("tileerror", () => { mapNote.hidden = false; });
+
+  airportLayer = globalThis.L.layerGroup().addTo(map);
+  pathLayer = globalThis.L.layerGroup().addTo(map);
+  aircraftLayer = globalThis.L.layerGroup().addTo(map);
+  map.setView([42.08, -71.52], 8);
+
+  map.on("popupclose", (event) => {
+    if (suppressPopupClose || !state.selectedId) return;
+    const selectedMarker = mapMarkerById.get(state.selectedId);
+    if (selectedMarker && event.popup === selectedMarker.getPopup()) closeDetail();
+  });
+
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => map.invalidateSize()).observe(mapArea);
+    new ResizeObserver(() => {
+      mapArea.style.setProperty("--replay-height", `${replayBar.offsetHeight}px`);
+    }).observe(replayBar);
+  }
 }
 
-function buildMap() {
-  markerById.clear();
-  pathById.clear();
-  const aircraft = projectedCurrentAircraft();
-  const airports = [...state.airports.values()]
-    .filter(pointInsideMap)
-    .map((airport) => `
-      <span class="airport" style="--x:${airport.x}%;--y:${airport.y}%">
-        <span class="airport__sq"></span><span class="airport__code">${esc(airport.code)}</span>
-      </span>`).join("");
-  const markers = aircraft.map((item) => `
-    <button class="marker${item.emergency ? " is-alert" : ""}" type="button" data-id="${esc(item.id)}"
-            aria-label="${esc(aircraftName(item))}, ${esc(item.origin || "unknown origin")} to ${esc(item.destination || "unknown destination")}"
-            aria-pressed="${item.id === state.selectedId}">
-      <span class="marker__nose" aria-hidden="true"></span>
-      <span class="marker__label" aria-hidden="true">${esc(aircraftName(item))}</span>
-    </button>`).join("");
-  mapLayer.innerHTML = airports + markers;
-
-  mapPaths.innerHTML = aircraft.map((item) => `
-    <g class="path${item.id === state.selectedId ? " is-selected" : ""}" data-id="${esc(item.id)}">
-      <polyline class="path__trail-short" points="" />
-      <polyline class="path__trail-full" points="" />
-      <polyline class="path__projected" points="" />
-    </g>`).join("");
-
-  $$(".marker", mapLayer).forEach((marker) => markerById.set(marker.dataset.id, marker));
-  $$(".path", mapPaths).forEach((group) => pathById.set(group.dataset.id, {
-    group,
-    trailShort: $(".path__trail-short", group),
-    trailFull: $(".path__trail-full", group),
-    projected: $(".path__projected", group),
-  }));
+function fitLiveRegion() {
+  const region = state.meta.region;
+  if ([region?.latitude, region?.longitude, region?.radiusNm].every(Number.isFinite)) {
+    const bounds = globalThis.L.circle(
+      [region.latitude, region.longitude],
+      { radius: region.radiusNm * 1852 },
+    ).getBounds();
+    map.fitBounds(bounds, {
+      paddingTopLeft: [40, 70],
+      paddingBottomRight: [40, replayBar.offsetHeight + 30],
+    });
+    state.mapViewInitialized = true;
+    return;
+  }
+  fitCurrentAircraft();
 }
 
-function toPoints(points) {
-  return points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-}
-
-function clipRayToMap(from, destination) {
-  if (!from || !destination) return null;
-  const dx = destination.x - from.x;
-  const dy = destination.y - from.y;
-  let scale = 1;
-  if (dx > 0) scale = Math.min(scale, (100 - from.x) / dx);
-  if (dx < 0) scale = Math.min(scale, (0 - from.x) / dx);
-  if (dy > 0) scale = Math.min(scale, (100 - from.y) / dy);
-  if (dy < 0) scale = Math.min(scale, (0 - from.y) / dy);
-  return { x: from.x + dx * scale, y: from.y + dy * scale };
+function fitCurrentAircraft() {
+  const points = currentAircraft().filter(hasLocation).map(toLatLng);
+  if (!points.length) return;
+  map.fitBounds(points, {
+    maxZoom: 9,
+    paddingTopLeft: [40, 70],
+    paddingBottomRight: [40, replayBar.offsetHeight + 30],
+  });
+  state.mapViewInitialized = true;
 }
 
 function replayTrail(id) {
   return state.replayFrames.slice(0, state.replayIndex + 1)
-    .map((frame) => frame.aircraft.find((item) => item.id === id))
+    .map((frame) => (frame.aircraft || []).map(replayPoint).find((item) => item.id === id))
     .filter(Boolean);
 }
 
@@ -245,36 +287,151 @@ function liveTrail(id) {
   return state.historyById.get(id) || [];
 }
 
-function renderMap() {
-  for (const aircraft of projectedCurrentAircraft()) {
-    const marker = markerById.get(aircraft.id);
-    const path = pathById.get(aircraft.id);
-    if (!marker || !path) continue;
-
-    marker.style.setProperty("--x", `${aircraft.x}%`);
-    marker.style.setProperty("--y", `${aircraft.y}%`);
-    let rotation = Number.isFinite(aircraft.headingDegrees) ? aircraft.headingDegrees - 90 : 0;
-    const destination = state.airports.get(aircraft.destination);
-    if (!Number.isFinite(aircraft.headingDegrees) && destination) {
-      rotation = Math.atan2(destination.y - aircraft.y, destination.x - aircraft.x) * 180 / Math.PI;
+function trailFor(aircraft) {
+  const points = state.mode === "replay"
+    ? replayTrail(aircraft.id)
+    : liveTrail(aircraft.id);
+  const trail = points.filter(hasLocation).map(toLatLng);
+  if (hasLocation(aircraft)) {
+    const last = trail.at(-1);
+    if (!last || last[0] !== aircraft.latitude || last[1] !== aircraft.longitude) {
+      trail.push(toLatLng(aircraft));
     }
-    marker.style.setProperty("--rot", `${rotation}deg`);
-
-    const rawTrail = state.mode === "replay" ? replayTrail(aircraft.id) : liveTrail(aircraft.id);
-    const trail = rawTrail
-      .map((point) => projectPosition(point.latitude, point.longitude, state.meta.region))
-      .filter(Boolean);
-    if (!trail.length || trail.at(-1).x !== aircraft.x || trail.at(-1).y !== aircraft.y) {
-      trail.push({ x: aircraft.x, y: aircraft.y });
-    }
-    path.trailShort.setAttribute("points", toPoints(trail.slice(-5)));
-    path.trailFull.setAttribute("points", toPoints(trail));
-    const projectedDestination = destination ? clipRayToMap(aircraft, destination) : null;
-    path.projected.setAttribute(
-      "points",
-      projectedDestination ? toPoints([aircraft, projectedDestination]) : "",
-    );
   }
+  return trail;
+}
+
+function destinationFor(aircraft) {
+  const airport = currentAirports().get(aircraft.destination);
+  if (hasLocation(airport)) return airport;
+  return (aircraft.route?.waypoints || []).find(
+    (waypoint) => waypoint.code === aircraft.destination && hasLocation(waypoint),
+  ) || null;
+}
+
+function altitudeBand(altitude) {
+  if (!Number.isFinite(altitude)) return "unknown";
+  if (altitude < 30_000) return "low";
+  if (altitude >= 35_000) return "high";
+  return "mid";
+}
+
+function bearingToDestination(aircraft, destination) {
+  if (Number.isFinite(aircraft.headingDegrees)) return aircraft.headingDegrees;
+  if (!hasLocation(destination)) return 90;
+  const latitude1 = aircraft.latitude * Math.PI / 180;
+  const latitude2 = destination.latitude * Math.PI / 180;
+  const deltaLongitude = (destination.longitude - aircraft.longitude) * Math.PI / 180;
+  const y = Math.sin(deltaLongitude) * Math.cos(latitude2);
+  const x = Math.cos(latitude1) * Math.sin(latitude2)
+    - Math.sin(latitude1) * Math.cos(latitude2) * Math.cos(deltaLongitude);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function popupHtml(aircraft) {
+  const route = `${esc(aircraft.origin || "—")} → ${esc(aircraft.destination || "—")}`;
+  const altitude = Number.isFinite(aircraft.altitudeFeet)
+    ? `${Math.round(aircraft.altitudeFeet).toLocaleString()} ft`
+    : aircraft.onGround ? "On ground" : "Not available";
+  const speed = Number.isFinite(aircraft.speedKnots)
+    ? `${Math.round(aircraft.speedKnots)} kt`
+    : "Not available";
+  const heading = Number.isFinite(aircraft.headingDegrees)
+    ? `${Math.round(aircraft.headingDegrees)}°`
+    : "Not available";
+  return `
+    <strong class="popup__title">${esc(aircraftName(aircraft))}</strong>
+    <span class="popup__route">${route}</span>
+    <dl>
+      <div class="popup__row"><dt>Altitude</dt><dd>${esc(altitude)}</dd></div>
+      <div class="popup__row"><dt>Speed</dt><dd>${esc(speed)}</dd></div>
+      <div class="popup__row"><dt>Heading</dt><dd>${esc(heading)}</dd></div>
+    </dl>`;
+}
+
+function setPathClass(paths, className, enabled) {
+  if (!paths) return;
+  for (const path of Object.values(paths)) {
+    path.getElement()?.classList.toggle(className, enabled);
+  }
+}
+
+function renderMap() {
+  if (!map) return;
+  suppressPopupClose = true;
+  airportLayer.clearLayers();
+  aircraftLayer.clearLayers();
+  pathLayer.clearLayers();
+  markerById.clear();
+  mapMarkerById.clear();
+  pathById.clear();
+
+  for (const airport of currentAirports().values()) {
+    if (!hasLocation(airport)) continue;
+    const icon = globalThis.L.divIcon({
+      className: "",
+      html: `<span class="airport"><span class="airport__sq"></span><span class="airport__code">${esc(airport.code)}</span></span>`,
+      iconSize: [12, 12],
+    });
+    globalThis.L.marker(toLatLng(airport), {
+      icon,
+      interactive: false,
+      keyboard: false,
+    }).addTo(airportLayer);
+  }
+
+  for (const aircraft of currentAircraft()) {
+    if (!hasLocation(aircraft)) continue;
+    const selected = aircraft.id === state.selectedId;
+    const dimmed = !flightMatches(aircraft);
+    const trail = trailFor(aircraft);
+    const destination = destinationFor(aircraft);
+    const classes = `${selected ? " is-selected" : ""}${dimmed ? " is-dimmed" : ""}`;
+    const paths = {
+      trailShort: globalThis.L.polyline(trail.slice(-5), {
+        className: `path__trail-short${classes}`,
+        interactive: false,
+      }).addTo(pathLayer),
+      trailFull: globalThis.L.polyline(trail, {
+        className: `path__trail-full${classes}`,
+        interactive: false,
+      }).addTo(pathLayer),
+      projected: globalThis.L.polyline(
+        destination ? [toLatLng(aircraft), toLatLng(destination)] : [],
+        { className: `path__projected${classes}`, interactive: false },
+      ).addTo(pathLayer),
+    };
+    pathById.set(aircraft.id, paths);
+
+    const button = document.createElement("button");
+    button.className = `marker${aircraft.emergency ? " is-alert" : ""}${dimmed ? " is-dimmed" : ""}`;
+    button.type = "button";
+    button.dataset.id = aircraft.id;
+    button.dataset.band = altitudeBand(aircraft.altitudeFeet);
+    button.setAttribute(
+      "aria-label",
+      `${aircraftName(aircraft)}, ${aircraft.origin || "unknown origin"} to ${aircraft.destination || "unknown destination"}`,
+    );
+    button.setAttribute("aria-pressed", String(selected));
+    button.style.setProperty("--rot", `${bearingToDestination(aircraft, destination) - 90}deg`);
+    button.innerHTML = `<span class="marker__nose" aria-hidden="true"></span><span class="marker__label" aria-hidden="true">${esc(aircraftName(aircraft))}</span>`;
+    button.addEventListener("click", () => selectFlight(aircraft.id));
+
+    const marker = globalThis.L.marker(toLatLng(aircraft), {
+      icon: globalThis.L.divIcon({ className: "", html: button, iconSize: [18, 18] }),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: selected || aircraft.emergency ? 1000 : 0,
+    }).addTo(aircraftLayer);
+    marker.bindPopup(popupHtml(aircraft), {
+      autoPanPaddingTopLeft: [20, 70],
+      autoPanPaddingBottomRight: [20, replayBar.offsetHeight + 30],
+    });
+    markerById.set(aircraft.id, button);
+    mapMarkerById.set(aircraft.id, marker);
+  }
+
+  suppressPopupClose = false;
 }
 
 function renderFlights() {
@@ -283,10 +440,9 @@ function renderFlights() {
     const matches = flightMatches(aircraft);
     const row = rowById.get(aircraft.id);
     const marker = markerById.get(aircraft.id);
-    const path = pathById.get(aircraft.id);
     if (row) row.parentElement.hidden = !matches;
     marker?.classList.toggle("is-dimmed", !matches);
-    path?.group.classList.toggle("is-dimmed", !matches);
+    setPathClass(pathById.get(aircraft.id), "is-dimmed", !matches);
     if (matches) visible += 1;
   }
   aircraftCount.textContent = `${visible} AIRCRAFT`;
@@ -294,9 +450,18 @@ function renderFlights() {
 }
 
 function renderSelection() {
-  for (const [id, row] of rowById) row.setAttribute("aria-pressed", String(id === state.selectedId));
-  for (const [id, marker] of markerById) marker.setAttribute("aria-pressed", String(id === state.selectedId));
-  for (const [id, path] of pathById) path.group.classList.toggle("is-selected", id === state.selectedId);
+  for (const [id, row] of rowById) {
+    row.setAttribute("aria-pressed", String(id === state.selectedId));
+  }
+  for (const [id, marker] of markerById) {
+    marker.setAttribute("aria-pressed", String(id === state.selectedId));
+    mapMarkerById.get(id)?.setZIndexOffset(
+      id === state.selectedId || currentAircraftById(id)?.emergency ? 1000 : 0,
+    );
+  }
+  for (const [id, paths] of pathById) {
+    setPathClass(paths, "is-selected", id === state.selectedId);
+  }
 }
 
 function calculateProgress(aircraft) {
@@ -312,21 +477,14 @@ function calculateProgress(aircraft) {
   const currentY = aircraft.latitude - origin.latitude;
   const denominator = routeX ** 2 + routeY ** 2;
   if (!denominator) return null;
-  return Math.round(Math.max(0, Math.min(1, (currentX * routeX + currentY * routeY) / denominator)) * 100);
+  return Math.round(
+    Math.max(0, Math.min(1, (currentX * routeX + currentY * routeY) / denominator)) * 100,
+  );
 }
 
-function renderChart() {
-  const points = state.mode === "replay"
-    ? replayTrail(state.selectedId)
-    : state.historyById.get(state.selectedId) || [];
+function chartPoints(points) {
   const samples = points.filter((point) => Number.isFinite(point.altitudeFeet));
-  const polyline = $("#altitude-chart-line");
-  const note = $("#altitude-chart-note");
-  if (samples.length < 2) {
-    polyline.setAttribute("points", "");
-    note.textContent = "Altitude history is not available yet.";
-    return;
-  }
+  if (samples.length < 2) return { samples, points: "" };
   const altitudes = samples.map((point) => point.altitudeFeet);
   const minimum = Math.min(...altitudes);
   const maximum = Math.max(...altitudes);
@@ -335,8 +493,23 @@ function renderChart() {
     x: 4 + (index / (samples.length - 1)) * 192,
     y: 62 - ((point.altitudeFeet - minimum) / range) * 54,
   }));
-  polyline.setAttribute("points", toPoints(graph));
-  note.textContent = `${samples.length} samples · ${minimum.toLocaleString()}–${maximum.toLocaleString()} ft`;
+  return {
+    samples,
+    minimum,
+    maximum,
+    points: graph.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
+  };
+}
+
+function renderChart() {
+  const points = state.mode === "replay"
+    ? replayTrail(state.selectedId)
+    : state.historyById.get(state.selectedId) || [];
+  const chart = chartPoints(points);
+  $("#altitude-chart-line").setAttribute("points", chart.points);
+  $("#altitude-chart-note").textContent = chart.samples.length < 2
+    ? "Altitude history is not available yet."
+    : `${chart.samples.length} samples · ${chart.minimum.toLocaleString()}–${chart.maximum.toLocaleString()} ft`;
 }
 
 function fillDetail(aircraft) {
@@ -349,7 +522,9 @@ function fillDetail(aircraft) {
     ? "First observed"
     : "Departed";
   $("#detail-departed").textContent = formatClock(observedDeparture);
-  $("#detail-eta-label").textContent = aircraft.etaSource === "calculated" ? "ETA · CALCULATED" : "ETA";
+  $("#detail-eta-label").textContent = aircraft.etaSource === "calculated"
+    ? "ETA · CALCULATED"
+    : "ETA";
   $("#detail-eta").textContent = formatClock(aircraft.eta);
   $("#detail-callsign").textContent = displayValue(aircraft.callsign);
   $("#detail-speed").textContent = Number.isFinite(aircraft.speedKnots)
@@ -371,21 +546,26 @@ function fillDetail(aircraft) {
   progressElement.hidden = progress === null;
   if (progress !== null) {
     $("#detail-progress-bar").style.width = `${progress}%`;
-    progressElement.setAttribute("aria-valuenow", progress);
+    progressElement.setAttribute("aria-valuenow", String(progress));
   }
   renderChart();
 }
 
 async function loadSelectedAircraft(id) {
+  const aircraft = liveAircraftById(id);
+  if (!aircraft) return;
   state.detailRequest?.abort();
   const controller = new AbortController();
   state.detailRequest = controller;
   detailStatus.textContent = "Loading route and history…";
-
+  const aircraftId = aircraft.aircraftId || aircraft.id;
   const window = buildTimeWindow(ONE_HOUR_MS);
-  const detailPromise = requestJson(`/api/aircraft/${encodeURIComponent(id)}`, { signal: controller.signal });
+  const detailPromise = requestJson(
+    `/api/aircraft/${encodeURIComponent(aircraftId)}`,
+    { signal: controller.signal },
+  );
   const historyPromise = requestJson(
-    `/api/aircraft/${encodeURIComponent(id)}/history?${window}`,
+    `/api/aircraft/${encodeURIComponent(aircraftId)}/history?${window}`,
     { signal: controller.signal },
   );
 
@@ -396,7 +576,9 @@ async function loadSelectedAircraft(id) {
   if (detail.status === "fulfilled") {
     state.detailsById.set(id, detail.value.aircraft);
   } else {
-    messages.push(detail.reason.status === 404 ? "Aircraft left the live region." : "Route details unavailable.");
+    messages.push(detail.reason.status === 404
+      ? "Aircraft left the live region."
+      : "Route details unavailable.");
   }
   if (history.status === "fulfilled") {
     state.historyById.set(id, history.value.points);
@@ -406,17 +588,22 @@ async function loadSelectedAircraft(id) {
   detailStatus.textContent = messages.join(" ");
   fillDetail(currentAircraftById(id));
   renderMap();
+  renderFlights();
+  renderSelection();
 }
 
 function selectFlight(id) {
+  const aircraft = currentAircraftById(id);
+  if (!aircraft) return;
   state.selectedId = id;
   detailPanel.hidden = false;
   setPanel(true);
   renderSelection();
-  fillDetail(currentAircraftById(id));
+  fillDetail(aircraft);
   rowById.get(id)?.scrollIntoView({ block: "nearest" });
+  mapMarkerById.get(id)?.openPopup();
 
-  if (state.mode === "live" && liveAircraftById(id)) {
+  if (state.mode === "live") {
     loadSelectedAircraft(id).catch((error) => {
       if (error.name !== "AbortError") detailStatus.textContent = error.message;
     });
@@ -427,9 +614,15 @@ function selectFlight(id) {
 
 function closeDetail() {
   state.detailRequest?.abort();
+  const previousId = state.selectedId;
   state.selectedId = null;
   detailPanel.hidden = true;
   detailStatus.textContent = "";
+  if (previousId) {
+    suppressPopupClose = true;
+    mapMarkerById.get(previousId)?.closePopup();
+    suppressPopupClose = false;
+  }
   renderSelection();
 }
 
@@ -448,6 +641,7 @@ function setPanel(open) {
   panelHandle.setAttribute("aria-expanded", String(open));
   panelHandle.setAttribute("aria-label", open ? "Hide flight panel" : "Show flight panel");
   panelHandle.textContent = open ? "‹" : "›";
+  setTimeout(() => map?.invalidateSize(), 0);
 }
 
 function renderStatus() {
@@ -481,19 +675,23 @@ function renderPeriodText() {
     return;
   }
   if (state.replayLoading) {
-    periodText.textContent = "LOADING RECENT REPLAY…";
+    periodText.textContent = "LOADING REPLAY…";
     return;
   }
   const frame = state.replayFrames[state.replayIndex];
   periodText.textContent = frame
     ? `FRAME ${state.replayIndex + 1} OF ${state.replayFrames.length} · ${formatClock(frame.timestamp).toUpperCase()}${state.replayTruncated ? " · LIMITED" : ""}`
-    : "NO RECORDED POSITIONS IN THE LAST HOUR";
+    : "NO RECORDED POSITIONS FOR THIS DATE";
 }
 
 function updateReplayControls() {
-  const enabled = state.mode === "replay" && state.replayFrames.length > 0 && !state.replayLoading;
-  $$(".replay__controls button, .replay__controls select, #replay-scrubber")
+  const hasFrames = state.replayFrames.length > 0;
+  const enabled = state.mode === "replay" && hasFrames && !state.replayLoading;
+  $$(".replay__controls button, #replay-scrubber")
     .forEach((control) => { control.disabled = !enabled; });
+  replayDate.disabled = state.mode !== "replay"
+    || state.replayLoading
+    || state.replayDates.length === 0;
   replayBar.dataset.mode = state.mode;
   $("#mode-replay").setAttribute("aria-pressed", String(state.mode === "replay"));
   $("#mode-live").setAttribute("aria-pressed", String(state.mode === "live"));
@@ -503,7 +701,9 @@ function updateReplayControls() {
 }
 
 function renderAlert() {
-  const activeIds = new Set(currentAircraft().filter((item) => item.emergency).map((item) => item.id));
+  const activeIds = new Set(
+    currentAircraft().filter((item) => item.emergency).map((item) => item.id),
+  );
   for (const id of state.dismissedAlerts) {
     if (!activeIds.has(id)) state.dismissedAlerts.delete(id);
   }
@@ -517,9 +717,13 @@ function renderAlert() {
 }
 
 function renderCurrent() {
+  if (state.selectedId && !currentAircraftById(state.selectedId)) {
+    state.selectedId = null;
+    detailPanel.hidden = true;
+    detailStatus.textContent = "";
+  }
   renderFilters();
   buildFlightList();
-  buildMap();
   renderMap();
   renderFlights();
   renderSelection();
@@ -530,8 +734,9 @@ function renderCurrent() {
   if (state.selectedId) fillDetail(currentAircraftById(state.selectedId));
 }
 
-function showLoadError(error) {
-  $("#load-error-text").textContent = error.message;
+function showLoadError(title, error) {
+  $("#load-error-title").textContent = title;
+  $("#load-error-text").textContent = error.message || String(error);
   $("#load-error").hidden = false;
 }
 
@@ -549,12 +754,15 @@ function scheduleLiveRefresh() {
 function applyLiveSnapshot(payload) {
   state.meta = payload.meta || {};
   state.aircraft = Array.isArray(payload.aircraft) ? payload.aircraft : [];
-  state.airports = collectAirports(state.aircraft, state.meta.region);
+  state.liveAirports = collectAirports(state.aircraft);
   state.lastError = null;
   clearLoadError();
-  if (state.selectedId && !liveAircraftById(state.selectedId) && state.mode === "live") closeDetail();
-  if (state.mode === "live") renderCurrent();
-  else renderStatus();
+  if (state.mode === "live") {
+    renderCurrent();
+    if (!state.mapViewInitialized) fitLiveRegion();
+  } else {
+    renderStatus();
+  }
 }
 
 async function refreshLive({ immediate = false } = {}) {
@@ -574,7 +782,7 @@ async function refreshLive({ immediate = false } = {}) {
       applyLiveSnapshot(error.payload);
     } else {
       state.lastError = error;
-      if (!state.aircraft.length) showLoadError(error);
+      if (!state.aircraft.length) showLoadError("Could not load live aircraft", error);
       renderStatus();
       renderPeriodText();
     }
@@ -583,14 +791,26 @@ async function refreshLive({ immediate = false } = {}) {
   }
 }
 
-function populateReplayDate() {
-  const dates = [...new Set(state.replayFrames.map((frame) => new Date(frame.timestamp).toLocaleDateString()))];
-  replayDate.innerHTML = dates.length
-    ? dates.map((date) => `<option>${esc(date)}</option>`).join("")
-    : "<option>No data</option>";
+function populateReplayDates() {
+  replayDate.innerHTML = state.replayDates.length
+    ? state.replayDates.map((date) => `<option value="${esc(date)}">${esc(date)}</option>`).join("")
+    : "<option value=\"\">No recorded dates</option>";
 }
 
-async function loadReplay() {
+async function loadReplayDates() {
+  try {
+    const payload = await requestJson("/api/replay/dates");
+    state.replayDates = Array.isArray(payload.dates) ? payload.dates : [];
+    populateReplayDates();
+  } catch (error) {
+    state.replayDates = [];
+    populateReplayDates();
+    console.warn(`Replay dates unavailable: ${error.message}`);
+  }
+  updateReplayControls();
+}
+
+async function loadReplay(date = replayDate.value) {
   state.replayRequest?.abort();
   const controller = new AbortController();
   state.replayRequest = controller;
@@ -598,37 +818,52 @@ async function loadReplay() {
   renderPeriodText();
   updateReplayControls();
   try {
-    const payload = await requestJson(`/api/replay?${buildTimeWindow(ONE_HOUR_MS)}`, {
-      signal: controller.signal,
-    });
-    state.replayFrames = payload.frames || [];
+    if (!date) {
+      state.replayFrames = [];
+      state.replayAirports = new Map();
+      return;
+    }
+    const payload = await requestJson(
+      `/api/replay?date=${encodeURIComponent(date)}`,
+      { signal: controller.signal },
+    );
+    state.replayFrames = Array.isArray(payload.frames) ? payload.frames : [];
+    state.replayAirports = normalizeReplayAirports(payload.airports);
     state.replayTruncated = Boolean(payload.truncated);
-    state.replayIndex = Math.max(0, state.replayFrames.length - 1);
-    populateReplayDate();
+    state.replayIndex = 0;
+    if (Array.isArray(payload.availableDates) && payload.availableDates.length) {
+      state.replayDates = payload.availableDates;
+      populateReplayDates();
+      replayDate.value = date;
+    }
     clearLoadError();
   } catch (error) {
     if (error.name === "AbortError") return;
     state.replayFrames = [];
+    state.replayAirports = new Map();
     state.replayIndex = 0;
-    showLoadError(error);
+    showLoadError("Could not load replay", error);
   } finally {
     if (!controller.signal.aborted) {
       state.replayLoading = false;
       renderCurrent();
+      if (state.replayFrames.length) fitCurrentAircraft();
     }
   }
 }
 
 async function setMode(mode) {
   setPlaying(false);
+  if (state.mode !== mode) closeDetail();
   state.mode = mode;
-  if (mode === "replay" && !state.replayFrames.length) {
+  if (mode === "replay") {
+    if (!state.replayDates.length) await loadReplayDates();
     renderCurrent();
-    await loadReplay();
+    if (state.replayDates.length) await loadReplay(replayDate.value || state.replayDates[0]);
     return;
   }
   renderCurrent();
-  if (state.selectedId && mode === "live") selectFlight(state.selectedId);
+  fitLiveRegion();
 }
 
 function replayDelay() {
@@ -652,7 +887,9 @@ function scheduleNextFrame() {
 
 function setPlaying(playing) {
   if (playing && (state.mode !== "replay" || !state.replayFrames.length)) return;
-  if (playing && state.replayIndex >= state.replayFrames.length - 1) state.replayIndex = 0;
+  if (playing && state.replayIndex >= state.replayFrames.length - 1) {
+    state.replayIndex = 0;
+  }
   state.playing = playing;
   const button = $("#replay-play");
   button.setAttribute("aria-pressed", String(playing));
@@ -665,7 +902,9 @@ function setPlaying(playing) {
 function showReplayFrame(index) {
   state.replayIndex = Math.max(0, Math.min(index, state.replayFrames.length - 1));
   renderCurrent();
-  if (state.playing && state.replayIndex >= state.replayFrames.length - 1) setPlaying(false);
+  if (state.playing && state.replayIndex >= state.replayFrames.length - 1) {
+    setPlaying(false);
+  }
 }
 
 function goToReplayFrame(index) {
@@ -675,7 +914,7 @@ function goToReplayFrame(index) {
 
 function setSpeed(speed) {
   state.speed = speed;
-  $$('[data-speed]').forEach((button) => {
+  $$("[data-speed]").forEach((button) => {
     button.setAttribute("aria-pressed", String(Number(button.dataset.speed) === speed));
   });
   renderStatus();
@@ -686,10 +925,6 @@ function wireEvents() {
   flightList.addEventListener("click", (event) => {
     const row = event.target.closest(".flight-row");
     if (row) selectFlight(row.dataset.id);
-  });
-  mapLayer.addEventListener("click", (event) => {
-    const marker = event.target.closest(".marker");
-    if (marker) selectFlight(marker.dataset.id);
   });
   $("#detail-close").addEventListener("click", closeDetail);
   $("#tab-details").addEventListener("click", () => setTab("details"));
@@ -716,11 +951,12 @@ function wireEvents() {
 
   $("#mode-replay").addEventListener("click", () => setMode("replay"));
   $("#mode-live").addEventListener("click", () => setMode("live"));
+  replayDate.addEventListener("change", () => loadReplay(replayDate.value));
   $("#replay-play").addEventListener("click", () => setPlaying(!state.playing));
   $("#replay-back").addEventListener("click", () => goToReplayFrame(state.replayIndex - 1));
   $("#replay-forward").addEventListener("click", () => goToReplayFrame(state.replayIndex + 1));
   scrubber.addEventListener("input", () => goToReplayFrame(Number(scrubber.value)));
-  $$('[data-speed]').forEach((button) => {
+  $$("[data-speed]").forEach((button) => {
     button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
   });
 
@@ -734,7 +970,6 @@ function wireEvents() {
     if (id) selectFlight(id);
   });
 
-  window.addEventListener("resize", renderMap);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshLive({ immediate: true });
   });
@@ -751,10 +986,22 @@ function wireEvents() {
 }
 
 async function start() {
+  if (!globalThis.L) {
+    showLoadError(
+      "Could not load Leaflet",
+      new Error("Run npm install, restart the backend, and reload the page."),
+    );
+    statusText.textContent = "MAP NOT LOADED";
+    statusPill.dataset.state = "stale";
+    return;
+  }
+
+  initializeMap();
   wireEvents();
   setPanel(true);
   updateReplayControls();
   await refreshLive({ immediate: true });
+  await loadReplayDates();
 }
 
 start();

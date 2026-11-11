@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flight Tracker — Live API</title>
+  <title>Flight Tracker — Live Leaflet Map</title>
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <!-- CSS = presentation. Everything visual lives in this one file. -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
 <!--
-  FLIGHT TRACKER — LIVE API FRONTEND
+  FLIGHT TRACKER — LIVE API + LEAFLET FRONTEND
   HTML = structure. This file is only the markup: what is on the screen.
   The data-component="…" attributes name each block. They are the pieces
   that become React components when this project moves to Next.js.
-  Flights, airports and map points are NOT written here. js/app.js loads the
-  backend API and builds the flight rows, airports, markers and paths.
+  js/app.js loads normalized live and replay data from the backend API.
+  Leaflet draws airports, aircraft, trails and projected routes inside
+  the empty #map-canvas.
 -->
 <div class="app" id="app" data-panel="open">
 
@@ -30,7 +32,7 @@
         <span id="status-text">LOADING DATA…</span>
       </p>
 
-      <span class="badge">v1.0</span>
+      <span class="badge">v5.0</span>
     </div>
   </header>
 
@@ -127,7 +129,7 @@
 
       <!-- Shown when the backend API cannot be reached -->
       <div class="load-error" id="load-error" role="alert" hidden>
-        <p class="load-error__title">Could not load live aircraft</p>
+        <p class="load-error__title" id="load-error-title">Could not load live aircraft</p>
         <p class="load-error__text" id="load-error-text"></p>
       </div>
 
@@ -138,15 +140,11 @@
         <button class="btn btn--inverse btn--icon" type="button" id="alert-dismiss" aria-label="Dismiss alert">×</button>
       </div>
 
-      <!-- Flight paths (REQ-06): solid = where it has been, dashed = where it is going -->
-      <svg class="map__paths" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <!-- One <g class="path"> per flight is built by js/app.js: trail (where it has been) and projected line (where it is going) -->
-      </svg>
+      <!-- Leaflet is created here by js/app.js. Its layers come from the normalized backend API. -->
+      <div class="map__canvas" id="map-canvas"></div>
 
-      <!-- Airports and aircraft markers are built from normalized backend API records -->
-      <div class="map__layer" id="map-layer"></div>
-
-      <p class="map__caption">MAP PLACEHOLDER · schematic, not to scale</p>
+      <!-- Shown only if the map tiles (the background pictures) cannot be downloaded -->
+      <p class="map__note" id="map-note" role="status" hidden>Map tiles could not be loaded (no internet?). Aircraft are still drawn at their latitude and longitude.</p>
 
       <!-- Replay / live controls (REQ-07) (component: ReplayBar) -->
       <div class="replay" id="replay" data-component="ReplayBar" data-mode="live">
@@ -189,6 +187,7 @@
   </div>
 </div>
 
+<script src="/vendor/leaflet/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

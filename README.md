@@ -1,112 +1,122 @@
 # Flight Tracker
 
-A black-and-white flight tracker built with HTML, CSS, vanilla JavaScript, Express, and SQLite. ADSB.lol supplies free live aircraft data, while route lookup prefers ADSB.lol and automatically falls back to the free, no-key ADSBDB API. The backend derives progress, departure observations, and ETA without requiring a schedule provider.
+Flight Tracker is a MatrixSpace and Uxbridge High School internship project. The v5 application combines the v4-final Leaflet interface with a lightweight Express and SQLite backend that supplies live ADSB.lol aircraft, route information, recorded history, and replay.
 
 ## Run it
 
 Requirements: Node.js 20 or newer.
 
-```sh
+~~~sh
 npm install
 cp .env.example .env
 npm start
-```
+~~~
 
-Open <http://localhost:3000>. Do not open `index.html` directly or use a separate static server unless its origin is listed in `CORS_ORIGINS`.
+Open http://localhost:3000. Express serves both the frontend and API, so a separate static server is not needed.
 
-No API key is required for the default data path. With an empty `AIRLABS_API_KEY`, the backend calculates ETA from remaining great-circle distance and the five most recent valid ground-speed samples. It reports `Departed` only after observing a ground-to-air transition; otherwise an airborne aircraft is labeled `First observed`. AirLabs remains an optional override if access becomes available later.
+No API key is required for the default data path. ADSB.lol supplies live aircraft and route data, with ADSBDB as a free route fallback. AirLabs is optional; leave AIRLABS_API_KEY blank unless a key is available.
 
-ADSB.lol route results are used when available. Missing or empty route results are resolved by ADSBDB per callsign with at most four concurrent requests, geographically checked against the aircraft's current position, then cached for six hours in memory and SQLite. The persistent cache prevents restarts from repeating the same lookups. Implausible or unknown routes remain unavailable instead of producing a misleading ETA. General aviation, private, and unusual callsigns may still have no published route.
+Never put provider credentials in frontend files or commit .env.
+
+## What the application does
+
+- Displays live aircraft on a real Leaflet map using latitude and longitude.
+- Polls the local backend at meta.refreshIntervalSeconds (30 seconds by default).
+- Searches by flight number, callsign, tail number, or aircraft ID.
+- Filters by known origin and destination airports.
+- Shows selected-aircraft details, route progress, derived ETA, trail, and altitude history.
+- Displays emergency broadcasts and standard emergency squawks.
+- Replays retained SQLite snapshots by UTC date at 1×, 2×, 5×, or 10×.
+- Keeps OpenStreetMap attribution visible and continues drawing aircraft if tiles fail.
+
+The sample data.json, data-quality helpers, and mentor documents from v4-final remain in the repository as educational fixtures. The running application gets aircraft and replay data from the backend API instead of data.json.
 
 ## Browser data flow
 
 | API | Browser behavior |
 |---|---|
-| `GET /api/aircraft` | Loads and polls live aircraft, derived flight data, status, map markers, filters, and emergencies |
-| `GET /api/aircraft/:id` | Loads normalized selected-aircraft details and optional schedule-provider enrichment |
-| `GET /api/aircraft/:id/history` | Draws the selected aircraft trail and altitude chart |
-| `GET /api/replay?from=...&to=...` | Loads the most recent hour into the replay controls |
-| `GET /api/replay?date=YYYY-MM-DD` | Loads one UTC day, downsampled to 15-minute frames by default |
-| `GET /api/replay/dates` | Lists the UTC dates currently present in SQLite |
-| `GET /api/health` | Provides diagnostics; the UI normally uses metadata included with `/api/aircraft` |
+| GET /api/aircraft | Loads and polls normalized live aircraft, feed status, routes, and emergencies |
+| GET /api/aircraft/:id | Loads selected-aircraft details and optional AirLabs enrichment |
+| GET /api/aircraft/:id/history | Draws the selected aircraft trail and altitude chart |
+| GET /api/replay/dates | Lists UTC dates currently retained in SQLite |
+| GET /api/replay?date=YYYY-MM-DD | Loads one day of downsampled replay frames and historical airports |
+| GET /api/health | Reports feed status, providers, and replay configuration |
 
-The frontend uses only normalized fields such as `latitude`, `longitude`, `altitudeFeet`, `speedKnots`, and `tailNumber`. It never calls ADSB.lol or an optional schedule provider directly.
+The browser never contacts ADSB.lol, ADSBDB, or AirLabs directly. Multiple browser clients share the backend collector and do not multiply upstream position requests.
 
-## Derived flight data
+## Data model
 
-- `progressPercent` compares remaining great-circle distance with the origin-to-destination route distance.
-- `remainingDistanceNm` is the great-circle distance from the current position to the destination airport.
-- `eta` uses remaining distance and an average of the five most recent airborne speeds. `etaSource: "calculated"` distinguishes it from a published airline ETA.
-- `departureTimeSource: "observed"` means the running server saw a ground-to-air transition.
-- `departureTimeSource: "first-observed"` means the aircraft was already airborne when tracking began. The UI labels this honestly as `First observed`.
+The frontend consumes normalized fields such as latitude, longitude, altitudeFeet, speedKnots, headingDegrees, flightNumber, callsign, tailNumber, origin, destination, progressPercent, departureTime, and eta.
 
-These values are included in live snapshots and stored with every SQLite replay position.
-`flightSessionId` distinguishes a particular callsign session from the physical aircraft's Mode-S `id`, which is important when the same aircraft operates several flights during the replay week.
+flightSessionId distinguishes a particular callsign session from the physical aircraft's Mode-S id. Live detail and history requests use the Mode-S ID; replay markers use the session ID when available so separate flights are not joined into one trail.
 
-## Frontend behavior
+### Derived flight data
 
-- Live mode refreshes at `meta.refreshIntervalSeconds`, pauses polling work while the page is hidden, and keeps the last good snapshot visible during temporary failures.
-- The status pill reflects `live`, `starting`, and `degraded` backend states.
-- Search matches flight number, callsign, tail number, and aircraft ID. Airport filters are derived from resolved routes.
-- Selecting an aircraft loads normalized details and one hour of history. Slow responses are cancelled when another aircraft is selected.
-- `ETA · CALCULATED`, `Departed`, and `First observed` communicate the provenance of displayed times.
-- The altitude tab graphs real history when at least two altitude samples exist.
-- Emergency broadcasts and standard emergency squawks drive marker, row, and banner alerts.
-- The current frontend loads the most recent hour. The backend also supports seven selectable UTC days, with server-side downsampling for the v4 timeline.
+- progressPercent compares remaining great-circle distance with the origin-to-destination distance.
+- remainingDistanceNm is the great-circle distance from the aircraft to the destination.
+- A calculated ETA uses remaining distance and the five most recent valid airborne speed samples.
+- departureTimeSource identifies an observed departure or a flight first seen airborne.
+- Unknown or geographically implausible routes remain unavailable instead of receiving invented values.
 
-## Map projection
+## Replay and retention
 
-The map remains a lightweight SVG wireframe. `js/api.js` projects latitude/longitude into its 0–100 coordinate space using the tracking center and radius returned by the backend. Route airports inside the region are shown directly; projected paths toward destinations outside the region stop at the map edge.
+Each successful provider snapshot is stored in SQLite. By default:
+
+- History is retained for seven days.
+- A replay request covers at most 24 hours.
+- Date replay returns one complete snapshot per 15-minute bucket, or approximately 96 frames per day.
+- Replay reads SQLite and does not create additional provider requests.
+
+The replay date selector uses /api/replay/dates; the timeline uses the selected date's frames and historical airport coordinates.
 
 ## Configuration
 
 | Setting | Default | Purpose |
 |---|---:|---|
-| `PORT` | `3000` | Express and frontend port |
-| `TRACKING_LAT`, `TRACKING_LON` | Uxbridge, MA | Tracking region center |
-| `TRACKING_RADIUS_NM` | `25` | ADSB.lol radius and frontend map bounds |
-| `POLL_INTERVAL_MS` | `30000` | Backend provider polling interval |
-| `STALE_AFTER_SECONDS` | `60` | Age at which the feed is degraded |
-| `HISTORY_RETENTION_HOURS` | `168` | SQLite position retention (seven days) |
-| `REPLAY_MAX_RANGE_HOURS` | `24` | Maximum time span returned by one replay request |
-| `REPLAY_STEP_SECONDS` | `900` | Default interval for date-based replay (96 frames/day) |
-| `ADSBDB_BASE_URL` | `https://api.adsbdb.com` | Free route fallback service |
-| `ADSBDB_MAX_CONCURRENCY` | `4` | Maximum simultaneous fallback lookups on a cache miss |
-| `AIRLABS_API_KEY` | empty | Optional schedule-provider override; not required for ETA or progress |
+| PORT | 3000 | Express and frontend port |
+| TRACKING_LAT, TRACKING_LON | Uxbridge, MA | Tracking region center |
+| TRACKING_RADIUS_NM | 25 | ADSB.lol radius and initial Leaflet bounds |
+| POLL_INTERVAL_MS | 30000 | Backend provider polling interval |
+| STALE_AFTER_SECONDS | 60 | Age at which the feed becomes degraded |
+| HISTORY_RETENTION_HOURS | 168 | SQLite history retention |
+| REPLAY_MAX_RANGE_HOURS | 24 | Maximum range of one replay request |
+| REPLAY_STEP_SECONDS | 900 | Default date-replay bucket size |
+| ADSBDB_MAX_CONCURRENCY | 4 | Maximum simultaneous fallback route lookups |
+| AIRLABS_API_KEY | empty | Optional schedule-provider key |
 
-Never put provider credentials in frontend files or commit `.env`.
+The collector normally makes one ADSB.lol position request every 30 seconds, about 2,880 per continuously running day. It honors Retry-After and applies exponential backoff after failures. For a classroom deployment, prefer one shared backend instead of one continuously running backend per student.
 
-The collector makes one ADSB.lol position request every 30 seconds, about 2,880 per continuously running day. Browser clients share that collector and do not multiply upstream traffic. Provider `429` responses honor `Retry-After` and trigger exponential backoff. For a classroom, prefer one shared live backend rather than one continuously running backend per student. ADSB.lol data is published under ODbL 1.0 and should be attributed in any displayed or redistributed dataset.
+ADSB.lol data is published under ODbL 1.0. OpenStreetMap tiles require attribution and are suitable for this lightweight internship project, not heavy production traffic.
+
+See BACKEND.md for backend implementation details and docs/ for the v4 mentor references.
 
 ## Project layout
 
-```text
-backend/
-  aircraft.js            Normalization and derived flight calculations
-  app.js                 Express routes and static frontend
-  collector.js           Provider polling, route caching, and flight sessions
-  database.js            SQLite history, replay buckets, airports, route cache, migrations, and provider usage
-  providers/             ADSB.lol, ADSBDB fallback, and optional AirLabs clients
-css/styles.css            Wireframe styles
-js/api.js                 Browser API client and map/data helpers
-js/app.js                 UI state, rendering, polling, selection, and replay
-test/                     Backend and frontend-helper tests
-index.html                Frontend structure
-data.json                 Legacy demo fixture; no longer used at runtime
-```
+~~~text
+backend/                  Express, providers, SQLite, normalization
+css/styles.css            Leaflet wireframe styles
+js/api.js                 Browser API client and formatting helpers
+js/app.js                 Leaflet UI, polling, history, and replay
+js/quality.js             v4 educational data-quality helpers
+test/                     Node backend and API tests
+tests/                    Jest data-quality lesson tests
+data.json                 v4 fixture; not used at runtime
+~~~
 
 ## Tests
 
-```sh
+~~~sh
 npm test
-```
+~~~
 
-Tests cover provider normalization and backoff, derived ETA/progress, flight sessions, SQLite migration and persistence, replay bucketing, API routes, and frontend projection helpers.
+npm test runs both suites:
+
+- npm run test:backend — Node tests for providers, normalization, backoff, SQLite, API routes, replay, and browser helpers.
+- npm run test:frontend — Jest tests for the v4 data-quality exercises.
 
 ## Current limitations
 
-- The map is a projected wireframe rather than a tiled geographic map.
-- Origin, destination, progress, and ETA depend on ADSB.lol or ADSBDB resolving route waypoints.
-- Calculated ETA does not account for winds, routing changes, holding, or approach delays.
-- Departure observation state starts with the server process; restarting midflight produces `First observed`, not an invented departure time.
-- The current frontend exposes only the most recent hour; the v4 integration still needs to connect its date picker to the date-based replay endpoint.
+- Origin, destination, progress, and ETA depend on a provider resolving plausible route waypoints.
+- Calculated ETA does not account for wind, routing changes, holding, or approach delays.
+- Departure observation state starts with the server process; restarting midflight produces First observed, not an invented departure time.
+- OpenStreetMap's public tile service requires an internet connection and is not intended for heavy use.
