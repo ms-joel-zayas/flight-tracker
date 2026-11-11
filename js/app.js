@@ -1,12 +1,40 @@
+/* =====================================================================
+   FLIGHT TRACKER — WEEK 10 LIVE + REPLAY FRONTEND
+
+   JavaScript = behavior. This file controls what happens when someone
+   searches, selects an aircraft, changes replay time, or refreshes data.
+
+   The important Week 10 boundary:
+     browser -> our /api routes -> mentor-owned backend -> data providers
+
+   The browser never calls ADSB.fi, ADSB.lol, ADSBDB, or AirLabs directly.
+   It receives the same aircraft shape whether data is live or recorded.
+
+   How this file is organized:
+     1. Page pieces and constants
+     2. State
+     3. Data helpers
+     4. Build and update the list and map
+     5. Selected-aircraft details
+     6. Loading, success, stale, and error states
+     7. Replay controls
+     8. Event listeners
+     9. Start-up
+   ===================================================================== */
+
 import {
   ApiError,
+  aircraftDescription,
   aircraftName,
   buildTimeWindow,
+  currentUpdateAgeSeconds,
   formatAge,
   formatClock,
+  formatVerticalRate,
   requestJson,
 } from "./api.js";
 
+/* ---------- 1. Grab the page pieces and set shared constants ---------- */
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -32,8 +60,9 @@ const periodText = $("#replay-period");
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Aircraft data <a href="https://adsb.fi/">ADSB.fi</a> / <a href="https://adsb.lol/">ADSB.lol</a> / <a href="https://www.adsbdb.com/">ADSBDB</a>';
 
+/* ---------- 2. State: everything the page needs to remember ---------- */
 const state = {
   meta: {},
   aircraft: [],
@@ -76,6 +105,7 @@ let aircraftLayer = null;
 let pathLayer = null;
 let suppressPopupClose = false;
 
+/* ---------- 3. Helpers for the normalized live/replay data ---------- */
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -146,11 +176,20 @@ function currentAircraftById(id) {
     ...current,
     flightNumber: detail.flightNumber || current.flightNumber,
     tailNumber: detail.tailNumber || current.tailNumber,
+    aircraftType: detail.aircraftType || current.aircraftType,
+    aircraftModel: detail.aircraftModel || current.aircraftModel,
+    manufacturer: detail.manufacturer || current.manufacturer,
+    operator: detail.operator || current.operator,
+    registeredOwner: detail.registeredOwner || current.registeredOwner,
+    registeredCountry: detail.registeredCountry || current.registeredCountry,
     origin: detail.origin || current.origin,
     destination: detail.destination || current.destination,
+    route: detail.route || current.route,
     eta: detail.eta || current.eta,
     etaSource: detail.etaSource || current.etaSource,
     departureTime: detail.departureTime || current.departureTime,
+    departureTimeSource: detail.departureTimeSource || current.departureTimeSource,
+    status: detail.status || current.status,
     enrichment: detail.enrichment,
   };
 }
@@ -186,6 +225,7 @@ function flightMatches(aircraft) {
     && (!state.dest || aircraft.destination === state.dest);
 }
 
+/* ---------- 4. Build and update the flight list and Leaflet map ---------- */
 function renderFilters() {
   const previousOrigin = state.origin;
   const previousDest = state.dest;
@@ -329,7 +369,9 @@ function bearingToDestination(aircraft, destination) {
 }
 
 function popupHtml(aircraft) {
-  const route = `${esc(aircraft.origin || "—")} → ${esc(aircraft.destination || "—")}`;
+  const route = aircraft.origin || aircraft.destination
+    ? `${esc(aircraft.origin || "—")} → ${esc(aircraft.destination || "—")}`
+    : "Route not published";
   const altitude = Number.isFinite(aircraft.altitudeFeet)
     ? `${Math.round(aircraft.altitudeFeet).toLocaleString()} ft`
     : aircraft.onGround ? "On ground" : "Not available";
@@ -339,13 +381,30 @@ function popupHtml(aircraft) {
   const heading = Number.isFinite(aircraft.headingDegrees)
     ? `${Math.round(aircraft.headingDegrees)}°`
     : "Not available";
+  const identityRows = [
+    ["Tail", aircraft.tailNumber],
+    ["Aircraft", aircraftDescription(aircraft)],
+    [aircraft.operator ? "Operator" : "Registered owner", aircraft.operator || aircraft.registeredOwner],
+  ].filter(([, value]) => value)
+    .map(([label, value]) => `<div class="popup__row"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`)
+    .join("");
+  const movementRows = [
+    ["Altitude", altitude],
+    ["Speed", speed],
+    ["Heading", heading],
+    ["Vertical rate", Number.isFinite(aircraft.verticalRateFpm)
+      ? formatVerticalRate(aircraft.verticalRateFpm)
+      : null],
+    ["Squawk", aircraft.squawk],
+  ].filter(([, value]) => value)
+    .map(([label, value]) => `<div class="popup__row"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`)
+    .join("");
   return `
     <strong class="popup__title">${esc(aircraftName(aircraft))}</strong>
     <span class="popup__route">${route}</span>
     <dl>
-      <div class="popup__row"><dt>Altitude</dt><dd>${esc(altitude)}</dd></div>
-      <div class="popup__row"><dt>Speed</dt><dd>${esc(speed)}</dd></div>
-      <div class="popup__row"><dt>Heading</dt><dd>${esc(heading)}</dd></div>
+      ${identityRows}
+      ${movementRows}
     </dl>`;
 }
 
@@ -380,7 +439,8 @@ function renderMap() {
     }).addTo(airportLayer);
   }
 
-  for (const aircraft of currentAircraft()) {
+  for (const current of currentAircraft()) {
+    const aircraft = currentAircraftById(current.id) || current;
     if (!hasLocation(aircraft)) continue;
     const selected = aircraft.id === state.selectedId;
     const dimmed = !flightMatches(aircraft);
@@ -432,6 +492,7 @@ function renderMap() {
   }
 
   suppressPopupClose = false;
+  if (state.selectedId) mapMarkerById.get(state.selectedId)?.openPopup();
 }
 
 function renderFlights() {
@@ -512,6 +573,7 @@ function renderChart() {
     : `${chart.samples.length} samples · ${chart.minimum.toLocaleString()}–${chart.maximum.toLocaleString()} ft`;
 }
 
+/* ---------- 5. Load and show one selected aircraft ---------- */
 function fillDetail(aircraft) {
   if (!aircraft) return;
   $("#detail-title").textContent = aircraftName(aircraft);
@@ -527,12 +589,19 @@ function fillDetail(aircraft) {
     : "ETA";
   $("#detail-eta").textContent = formatClock(aircraft.eta);
   $("#detail-callsign").textContent = displayValue(aircraft.callsign);
+  $("#detail-tail").textContent = displayValue(aircraft.tailNumber);
+  $("#detail-aircraft").textContent = displayValue(aircraftDescription(aircraft));
+  const operator = aircraft.operator || aircraft.registeredOwner;
+  $("#detail-operator-label").textContent = aircraft.operator ? "Operator" : "Registered owner";
+  $("#detail-operator").textContent = displayValue(operator);
   $("#detail-speed").textContent = Number.isFinite(aircraft.speedKnots)
     ? `${Math.round(aircraft.speedKnots)} kt`
     : "Not available";
   $("#detail-heading").textContent = Number.isFinite(aircraft.headingDegrees)
     ? `${Math.round(aircraft.headingDegrees)}°`
     : "Not available";
+  $("#detail-vertical-rate").textContent = formatVerticalRate(aircraft.verticalRateFpm);
+  $("#detail-squawk").textContent = displayValue(aircraft.squawk);
   const altitude = $("#detail-altitude");
   altitude.textContent = Number.isFinite(aircraft.altitudeFeet)
     ? `${Math.round(aircraft.altitudeFeet).toLocaleString()} ft`
@@ -575,6 +644,12 @@ async function loadSelectedAircraft(id) {
   const messages = [];
   if (detail.status === "fulfilled") {
     state.detailsById.set(id, detail.value.aircraft);
+    state.liveAirports = collectAirports(
+      state.aircraft.map((item) => currentAircraftById(item.id) || item),
+    );
+    if (!detail.value.aircraft.origin && !detail.value.aircraft.destination) {
+      messages.push("Route is not published for this aircraft.");
+    }
   } else {
     messages.push(detail.reason.status === 404
       ? "Aircraft left the live region."
@@ -644,6 +719,7 @@ function setPanel(open) {
   setTimeout(() => map?.invalidateSize(), 0);
 }
 
+/* ---------- 6. Loading, success, stale, and error states ---------- */
 function renderStatus() {
   if (state.mode === "replay") {
     const frame = state.replayFrames[state.replayIndex];
@@ -654,24 +730,33 @@ function renderStatus() {
     return;
   }
 
+  const updateAgeSeconds = currentUpdateAgeSeconds(state.meta);
+  const staleAfterSeconds = Number(state.meta.staleAfterSeconds) || 60;
+  const feedIsStale = updateAgeSeconds === null || updateAgeSeconds > staleAfterSeconds;
+  const retrying = state.meta.status === "degraded" || Boolean(state.lastError);
+  statusPill.title = state.lastError?.message || state.meta.warning || "";
+
   if (state.lastError && !state.aircraft.length) {
     statusText.textContent = "LIVE · API UNAVAILABLE";
     statusPill.dataset.state = "stale";
   } else if (state.meta.status === "starting") {
     statusText.textContent = "LIVE · CONNECTING";
     statusPill.dataset.state = "stale";
-  } else if (state.meta.status === "degraded" || state.lastError) {
-    statusText.textContent = `⚠ DATA STALE · ${formatAge(state.meta.updateAgeSeconds).toUpperCase()}`;
+  } else if (feedIsStale) {
+    statusText.textContent = `⚠ DATA STALE · ${formatAge(updateAgeSeconds).toUpperCase()}`;
     statusPill.dataset.state = "stale";
+  } else if (retrying) {
+    statusText.textContent = `LIVE · ${formatAge(updateAgeSeconds).toUpperCase()} · RETRYING`;
+    statusPill.dataset.state = "warning";
   } else {
-    statusText.textContent = `LIVE · ${formatAge(state.meta.updateAgeSeconds).toUpperCase()}`;
+    statusText.textContent = `LIVE · ${formatAge(updateAgeSeconds).toUpperCase()}`;
     statusPill.dataset.state = "live";
   }
 }
 
 function renderPeriodText() {
   if (state.mode === "live") {
-    periodText.textContent = `LIVE FEED · ${state.aircraft.length} AIRCRAFT · ${formatAge(state.meta.updateAgeSeconds).toUpperCase()}`;
+    periodText.textContent = `LIVE FEED · ${state.aircraft.length} AIRCRAFT · ${formatAge(currentUpdateAgeSeconds(state.meta)).toUpperCase()}`;
     return;
   }
   if (state.replayLoading) {
@@ -745,9 +830,11 @@ function clearLoadError() {
   $("#load-error-text").textContent = "";
 }
 
-function scheduleLiveRefresh() {
+function scheduleLiveRefresh(delaySeconds = null) {
   clearTimeout(state.liveTimerId);
-  const seconds = Math.max(5, Number(state.meta.refreshIntervalSeconds) || 30);
+  const seconds = delaySeconds === null
+    ? Math.max(5, Number(state.meta.refreshIntervalSeconds) || 30)
+    : Math.max(1, delaySeconds);
   state.liveTimerId = setTimeout(() => refreshLive(), seconds * 1000);
 }
 
@@ -774,6 +861,7 @@ async function refreshLive({ immediate = false } = {}) {
   state.liveRequest?.abort();
   const controller = new AbortController();
   state.liveRequest = controller;
+  let retrySeconds = null;
   try {
     applyLiveSnapshot(await requestJson("/api/aircraft", { signal: controller.signal }));
   } catch (error) {
@@ -782,12 +870,13 @@ async function refreshLive({ immediate = false } = {}) {
       applyLiveSnapshot(error.payload);
     } else {
       state.lastError = error;
+      retrySeconds = 5;
       if (!state.aircraft.length) showLoadError("Could not load live aircraft", error);
       renderStatus();
       renderPeriodText();
     }
   } finally {
-    if (!controller.signal.aborted) scheduleLiveRefresh();
+    if (!controller.signal.aborted) scheduleLiveRefresh(retrySeconds);
   }
 }
 
@@ -797,6 +886,7 @@ function populateReplayDates() {
     : "<option value=\"\">No recorded dates</option>";
 }
 
+/* ---------- 7. Replay: recorded data through the same UI ---------- */
 async function loadReplayDates() {
   try {
     const payload = await requestJson("/api/replay/dates");
@@ -921,6 +1011,7 @@ function setSpeed(speed) {
   scheduleNextFrame();
 }
 
+/* ---------- 8. Connect clicks and keyboard input to update functions ---------- */
 function wireEvents() {
   flightList.addEventListener("click", (event) => {
     const row = event.target.closest(".flight-row");
@@ -985,6 +1076,7 @@ function wireEvents() {
   });
 }
 
+/* ---------- 9. Start-up ---------- */
 async function start() {
   if (!globalThis.L) {
     showLoadError(

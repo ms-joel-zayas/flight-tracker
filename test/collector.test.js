@@ -9,6 +9,7 @@ test("tracks first observation and an observed ground-to-air departure", async (
   const provider = {
     fetchAircraft: async () => ({
       now,
+      provider: "adsb.fi",
       ac: [{
         hex: "A12AA1",
         flight: "UAL1783",
@@ -48,6 +49,7 @@ test("tracks first observation and an observed ground-to-air departure", async (
   });
 
   await collector.collect();
+  await collector.waitForRouteEnrichment();
   let aircraft = collector.getAircraft("a12aa1");
   assert.equal(aircraft.firstObservedAt, "2026-10-14T12:00:00.000Z");
   assert.equal(aircraft.departureTime, null);
@@ -61,6 +63,8 @@ test("tracks first observation and an observed ground-to-air departure", async (
   assert.equal(aircraft.departureTimeSource, "observed");
   assert.equal(aircraft.etaSource, "calculated");
   assert.equal(aircraft.progressPercent, 50);
+  assert.equal(aircraft.source, "adsb.fi");
+  assert.equal(collector.getSnapshot().meta.provider, "adsb.fi");
   assert.match(aircraft.flightSessionId, /^a12aa1:UAL1783:/);
   assert.equal(snapshots.length, 2);
 });

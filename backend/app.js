@@ -92,7 +92,15 @@ function groupReplayFrames(points) {
   return frames;
 }
 
-export function createApp({ config, collector, historyStore, airLabsEnricher }) {
+export function createApp({
+  config,
+  collector,
+  historyStore,
+  aircraftEnricher = {
+    airLabsEnabled: false,
+    enrich: async (aircraft) => aircraft,
+  },
+}) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "100kb" }));
@@ -122,7 +130,7 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
       return response.status(404).json({ error: "Aircraft is not in the current regional snapshot" });
     }
 
-    const enrichedAircraft = await airLabsEnricher.enrich(aircraft);
+    const enrichedAircraft = await aircraftEnricher.enrich(aircraft);
     response.json({ aircraft: enrichedAircraft });
   });
 
@@ -189,9 +197,23 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
       updateAgeSeconds: meta.updateAgeSeconds,
       warning: meta.warning,
       providers: {
-        adsbLol: { enabled: true },
-        adsbDb: { enabled: true, purpose: "route fallback" },
-        airLabs: { enabled: airLabsEnricher.enabled },
+        adsbFi: {
+          enabled: Boolean(config.adsbFi),
+          purpose: config.positionProvider === "adsbfi" ? "primary positions" : "position fallback",
+        },
+        adsbLol: {
+          enabled: true,
+          purpose: config.positionProvider === "adsblol"
+            ? "primary positions and routes"
+            : "position fallback",
+        },
+        adsbDb: {
+          enabled: true,
+          purpose: config.positionProvider === "adsblol"
+            ? "route fallback and selected-aircraft details"
+            : "routes and selected-aircraft details",
+        },
+        airLabs: { enabled: aircraftEnricher.airLabsEnabled },
       },
       historyRetentionHours: config.historyRetentionHours,
       replayMaxRangeHours: config.replayMaxRangeHours || Math.min(config.historyRetentionHours, 24),

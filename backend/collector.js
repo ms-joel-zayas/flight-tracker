@@ -29,15 +29,19 @@ export class FlightCollector {
     this.flightSessions = new Map();
     this.lastSuccessfulFetchMs = null;
     this.providerTimestampMs = null;
+    this.positionProvider = adsbProvider.name || "adsb.lol";
     this.lastError = null;
     this.routeWarning = null;
     this.collecting = false;
     this.consecutiveFailures = 0;
     this.nextCollectionAttemptMs = 0;
     this.timer = null;
+    this.routeEnrichmentTask = null;
+    this.stopped = false;
   }
 
   async start() {
+    this.stopped = false;
     await this.collect();
     this.timer = setInterval(() => this.collect(), this.config.pollIntervalMs);
   }
@@ -45,6 +49,7 @@ export class FlightCollector {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopped = true;
   }
 
   async collect() {
@@ -58,15 +63,19 @@ export class FlightCollector {
       const providerTimestampMs = Number.isFinite(Number(payload.now))
         ? Number(payload.now)
         : capturedAtMs;
+      const positionProvider = typeof payload.provider === "string"
+        ? payload.provider
+        : this.adsbProvider.name || "adsb.lol";
       let aircraft = payload.ac
         .map((rawAircraft) => normalizeAdsbAircraft(
           rawAircraft,
           providerTimestampMs,
           this.config.staleAfterSeconds,
+          positionProvider,
         ))
         .filter(Boolean);
 
-      aircraft = await this.addRoutes(aircraft, capturedAtMs);
+      aircraft = this.applyCachedRoutes(aircraft, capturedAtMs);
       aircraft = this.addObservedFlightData(aircraft, capturedAtMs);
       this.historyStore.recordSnapshot(aircraft, capturedAtMs);
       const retentionMs = this.config.historyRetentionHours * 60 * 60 * 1000;
@@ -74,10 +83,12 @@ export class FlightCollector {
 
       this.aircraft = aircraft;
       this.providerTimestampMs = providerTimestampMs;
+      this.positionProvider = positionProvider;
       this.lastSuccessfulFetchMs = capturedAtMs;
       this.lastError = null;
       this.consecutiveFailures = 0;
       this.nextCollectionAttemptMs = 0;
+      this.scheduleRouteEnrichment(aircraft, capturedAtMs);
     } catch (error) {
       this.lastError = error.message;
       this.consecutiveFailures += 1;
@@ -95,6 +106,44 @@ export class FlightCollector {
     } finally {
       this.collecting = false;
     }
+  }
+
+  applyCachedRoutes(aircraft, timestampMs) {
+    return aircraft.map((item) => applyRoute(
+      item,
+      item.callsign ? this.getCachedRoute(item.callsign, timestampMs)?.route : null,
+    ));
+  }
+
+  scheduleRouteEnrichment(aircraft, capturedAtMs) {
+    if (this.routeEnrichmentTask || this.stopped) return;
+
+    const task = (async () => {
+      try {
+        const routedAircraft = await this.addRoutes(aircraft, capturedAtMs);
+        if (this.stopped || this.lastSuccessfulFetchMs !== capturedAtMs) return;
+
+        this.aircraft = routedAircraft.map((item) => {
+          const recentSpeeds = this.flightSessions.get(item.id)?.recentSpeeds || [];
+          const recentSpeedKnots = recentSpeeds.length
+            ? recentSpeeds.reduce((sum, speed) => sum + speed, 0) / recentSpeeds.length
+            : item.speedKnots;
+          return applyDerivedFlightData(item, capturedAtMs, recentSpeedKnots);
+        });
+      } catch (error) {
+        this.routeWarning = error.message;
+        this.logger.warn(`Aircraft route update failed: ${error.message}`);
+      }
+    })();
+
+    this.routeEnrichmentTask = task;
+    void task.finally(() => {
+      if (this.routeEnrichmentTask === task) this.routeEnrichmentTask = null;
+    });
+  }
+
+  async waitForRouteEnrichment() {
+    await this.routeEnrichmentTask;
   }
 
   async addRoutes(aircraft, timestampMs) {
@@ -129,10 +178,7 @@ export class FlightCollector {
       }
     }
 
-    return aircraft.map((item) => applyRoute(
-      item,
-      item.callsign ? this.getCachedRoute(item.callsign, timestampMs)?.route : null,
-    ));
+    return this.applyCachedRoutes(aircraft, timestampMs);
   }
 
   getCachedRoute(callsign, timestampMs) {
@@ -226,7 +272,7 @@ export class FlightCollector {
           : feedIsStale || this.lastError
             ? "degraded"
             : "live",
-        provider: "adsb.lol",
+        provider: this.positionProvider,
         updatedAt: isoOrNull(this.lastSuccessfulFetchMs),
         providerTimestamp: isoOrNull(this.providerTimestampMs),
         updateAgeSeconds,

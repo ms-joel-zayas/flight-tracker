@@ -24,6 +24,14 @@ function resolveFromProject(value) {
   return path.isAbsolute(value) ? value : path.resolve(projectDirectory, value);
 }
 
+function choiceSetting(environment, name, fallback, choices) {
+  const value = (environment[name] || fallback).trim().toLowerCase();
+  if (!choices.includes(value)) {
+    throw new Error(`${name} must be one of: ${choices.join(", ")}`);
+  }
+  return value;
+}
+
 export function loadConfig(environment = process.env) {
   const sqlitePath = environment.SQLITE_PATH || "backend/data/flight-tracker.db";
   const historyRetentionHours = numberSetting(
@@ -61,6 +69,18 @@ export function loadConfig(environment = process.env) {
       { min: 30, max: 60 * 60 },
     ),
     sqlitePath: resolveFromProject(sqlitePath),
+    positionProvider: choiceSetting(
+      environment,
+      "ADSB_POSITION_PROVIDER",
+      "adsbfi",
+      ["adsbfi", "adsblol"],
+    ),
+    adsbFi: Object.freeze({
+      baseUrl: environment.ADSBFI_BASE_URL || "https://opendata.adsb.fi/api",
+      userAgent: environment.ADSBFI_USER_AGENT
+        || environment.ADSBLOL_USER_AGENT
+        || "uxbridge-flight-tracker/1.0 (+https://github.com/ms-joel-zayas/flight-tracker)",
+    }),
     adsbLol: Object.freeze({
       baseUrl: environment.ADSBLOL_BASE_URL || "https://api.adsb.lol",
       apiToken: environment.ADSBLOL_API_TOKEN || "",

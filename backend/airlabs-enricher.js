@@ -20,13 +20,17 @@ export class AirLabsEnricher {
     if (!this.enabled) {
       return {
         ...aircraft,
-        enrichment: { airLabs: "disabled" },
+        enrichment: { ...aircraft.enrichment, airLabs: "disabled" },
       };
     }
     if (!aircraft.callsign) {
       return {
         ...aircraft,
-        enrichment: { airLabs: "unavailable", reason: "Aircraft has no callsign" },
+        enrichment: {
+          ...aircraft.enrichment,
+          airLabs: "unavailable",
+          airLabsReason: "Aircraft has no callsign",
+        },
       };
     }
 
@@ -42,6 +46,7 @@ export class AirLabsEnricher {
       return {
         ...aircraft,
         enrichment: {
+          ...aircraft.enrichment,
           airLabs: "daily-limit-reached",
           requestsUsedToday: used,
           dailyRequestLimit: this.dailyRequestLimit,
@@ -60,7 +65,11 @@ export class AirLabsEnricher {
     } catch (error) {
       return {
         ...aircraft,
-        enrichment: { airLabs: "error", message: error.message },
+        enrichment: {
+          ...aircraft.enrichment,
+          airLabs: "error",
+          airLabsMessage: error.message,
+        },
       };
     }
   }
@@ -69,7 +78,7 @@ export class AirLabsEnricher {
     if (!flight) {
       return {
         ...aircraft,
-        enrichment: { airLabs: "no-match", cache: cacheStatus },
+        enrichment: { ...aircraft.enrichment, airLabs: "no-match", airLabsCache: cacheStatus },
       };
     }
 
@@ -85,9 +94,10 @@ export class AirLabsEnricher {
       departureTimeSource: flight.departureTime ? "airlabs" : aircraft.departureTimeSource,
       status: flight.status || aircraft.status,
       enrichment: {
+        ...aircraft.enrichment,
         airLabs: "available",
-        cache: cacheStatus,
-        updatedAt: flight.updatedAt,
+        airLabsCache: cacheStatus,
+        airLabsUpdatedAt: flight.updatedAt,
       },
     };
   }

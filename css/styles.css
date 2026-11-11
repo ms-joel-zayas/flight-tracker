@@ -146,6 +146,8 @@ ul { list-style: none; }
 }
 .status-pill[data-state="stale"] { border-style: dashed; background: var(--light); }
 .status-pill[data-state="stale"] .status-pill__dot { background: var(--paper); border: 2px solid var(--ink); }
+.status-pill[data-state="warning"] { border-style: dashed; }
+.status-pill[data-state="warning"] .status-pill__dot { border-radius: 0; }
 .status-pill[data-state="replay"] { background: var(--ink); color: var(--paper); }
 .status-pill[data-state="replay"] .status-pill__dot { background: var(--paper); border-radius: 0; }
 
@@ -462,6 +464,9 @@ ul { list-style: none; }
 .popup__row dt { margin: 0; color: var(--gray); }
 .popup__row dd { margin: 0; font-weight: bold; }
 .popup__row dd.is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
+.popup__row + .popup__row { border-top: 1px solid var(--light); }
+.popup__row dt { max-width: 90px; }
+.popup__row dd { max-width: 180px; text-align: right; overflow-wrap: anywhere; }
 
 
 /* ---------- 9. Replay bar (REQ-07) ---------- */

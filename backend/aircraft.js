@@ -36,7 +36,12 @@ export function detectEmergency(rawAircraft) {
   return null;
 }
 
-export function normalizeAdsbAircraft(rawAircraft, providerTimestampMs, staleAfterSeconds) {
+export function normalizeAdsbAircraft(
+  rawAircraft,
+  providerTimestampMs,
+  staleAfterSeconds,
+  source = "adsb.lol",
+) {
   const id = textOrNull(rawAircraft.hex)?.toLowerCase();
   const latitude = finiteNumber(rawAircraft.lat);
   const longitude = finiteNumber(rawAircraft.lon);
@@ -78,7 +83,7 @@ export function normalizeAdsbAircraft(rawAircraft, providerTimestampMs, staleAft
     remainingDistanceNm: null,
     status: onGround ? "ground" : "airborne",
     emergency: detectEmergency(rawAircraft),
-    source: "adsb.lol",
+    source,
   };
 }
 

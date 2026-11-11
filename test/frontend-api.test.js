@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  aircraftDescription,
   aircraftName,
   buildTimeWindow,
   collectAirports,
+  currentUpdateAgeSeconds,
   formatAge,
+  formatVerticalRate,
   projectPosition,
   projectedAircraft,
 } from "../js/api.js";
@@ -41,6 +44,18 @@ test("decorates aircraft and derives route airport map points", () => {
   assert.ok(Number.isFinite(airports.get("ORD").x));
 });
 
+test("formats selected-aircraft identity and vertical movement", () => {
+  assert.equal(aircraftDescription({
+    manufacturer: "Embraer",
+    aircraftModel: "175LR",
+    aircraftType: "E75L",
+  }), "Embraer 175LR");
+  assert.equal(aircraftDescription({ aircraftType: "C172" }), "C172");
+  assert.equal(formatVerticalRate(1200), "+1,200 ft/min");
+  assert.equal(formatVerticalRate(-450), "−450 ft/min");
+  assert.equal(formatVerticalRate(0), "Level");
+});
+
 test("builds deterministic history windows and readable update ages", () => {
   const now = Date.parse("2026-10-26T12:00:00.000Z");
   const window = buildTimeWindow(60_000, now);
@@ -48,4 +63,8 @@ test("builds deterministic history windows and readable update ages", () => {
   assert.equal(window.get("to"), "2026-10-26T12:00:00.000Z");
   assert.equal(formatAge(12.2), "updated 12s ago");
   assert.equal(formatAge(121), "updated 2m ago");
+  assert.equal(currentUpdateAgeSeconds(
+    { updatedAt: "2026-10-26T11:59:30.000Z", updateAgeSeconds: 1 },
+    now,
+  ), 30);
 });

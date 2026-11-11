@@ -1,3 +1,9 @@
+/*
+ * Small browser-side helpers shared by the Week 10 frontend.
+ * Provider-specific responses are normalized by the backend first, so this
+ * file only works with the stable fields documented in README.md.
+ */
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export class ApiError extends Error {
@@ -35,7 +41,12 @@ export async function requestJson(path, { signal, timeoutMs = DEFAULT_TIMEOUT_MS
     }
     return payload;
   } catch (error) {
-    if (error.name === "AbortError") throw error;
+    if (error.name === "AbortError") {
+      if (timeoutController.signal.aborted && !signal?.aborted) {
+        throw new ApiError(`The Flight Tracker API did not respond within ${timeoutMs / 1000} seconds.`);
+      }
+      throw error;
+    }
     if (error instanceof ApiError) throw error;
     throw new ApiError(`Could not reach the Flight Tracker API: ${error.message}`);
   } finally {
@@ -45,6 +56,23 @@ export async function requestJson(path, { signal, timeoutMs = DEFAULT_TIMEOUT_MS
 
 export function aircraftName(aircraft) {
   return aircraft.flightNumber || aircraft.callsign || aircraft.tailNumber || aircraft.id.toUpperCase();
+}
+
+export function aircraftDescription(aircraft) {
+  const manufacturer = aircraft.manufacturer?.trim();
+  const model = aircraft.aircraftModel?.trim();
+  if (manufacturer && model
+    && !model.toLowerCase().includes(manufacturer.toLowerCase())) {
+    return `${manufacturer} ${model}`;
+  }
+  return model || aircraft.aircraftType || manufacturer || null;
+}
+
+export function formatVerticalRate(feetPerMinute) {
+  if (!Number.isFinite(feetPerMinute)) return "Not available";
+  if (feetPerMinute === 0) return "Level";
+  const direction = feetPerMinute > 0 ? "+" : "−";
+  return `${direction}${Math.abs(Math.round(feetPerMinute)).toLocaleString()} ft/min`;
 }
 
 export function projectPosition(latitude, longitude, region) {
@@ -97,4 +125,11 @@ export function formatAge(seconds) {
   if (seconds < 1) return "updated now";
   if (seconds < 60) return `updated ${Math.round(seconds)}s ago`;
   return `updated ${Math.round(seconds / 60)}m ago`;
+}
+
+export function currentUpdateAgeSeconds(meta, now = Date.now()) {
+  const updatedAtMs = Date.parse(meta?.updatedAt);
+  if (Number.isFinite(updatedAtMs)) return Math.max(0, (now - updatedAtMs) / 1000);
+  const reportedAge = Number(meta?.updateAgeSeconds);
+  return Number.isFinite(reportedAge) ? Math.max(0, reportedAge) : null;
 }

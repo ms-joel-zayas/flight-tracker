@@ -64,6 +64,7 @@ export class AdsbLolProvider {
     routeFallback = null,
     fetchImpl = globalThis.fetch,
   }) {
+    this.name = "adsb.lol";
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiToken = apiToken;
     this.userAgent = userAgent;

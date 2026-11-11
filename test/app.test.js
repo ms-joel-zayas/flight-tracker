@@ -33,8 +33,8 @@ test("serves the normalized aircraft snapshot", async (context) => {
     getReplayDates: () => ["2026-10-14"],
     getAirportsForWindow: () => [],
   };
-  const airLabsEnricher = {
-    enabled: false,
+  const aircraftEnricher = {
+    airLabsEnabled: false,
     enrich: async (item) => ({ ...item, enrichment: { airLabs: "disabled" } }),
   };
   const config = {
@@ -42,9 +42,11 @@ test("serves the normalized aircraft snapshot", async (context) => {
     historyRetentionHours: 168,
     replayMaxRangeHours: 24,
     replayStepSeconds: 900,
+    positionProvider: "adsbfi",
+    adsbFi: { baseUrl: "https://example.test/api" },
     corsOrigins: new Set(),
   };
-  const server = await listen(createApp({ config, collector, historyStore, airLabsEnricher }));
+  const server = await listen(createApp({ config, collector, historyStore, aircraftEnricher }));
   context.after(() => new Promise((resolve) => server.close(resolve)));
   const address = server.address();
 
@@ -79,6 +81,7 @@ test("serves the normalized aircraft snapshot", async (context) => {
   const healthResponse = await fetch(`http://127.0.0.1:${address.port}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
+  assert.equal(health.providers.adsbFi.enabled, true);
   assert.equal(health.providers.adsbDb.enabled, true);
   assert.equal(health.providers.airLabs.enabled, false);
 
@@ -100,7 +103,7 @@ test("rejects an invalid replay time window", async (context) => {
     },
     collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
     historyStore: { getHistory: () => [], getReplay: () => [] },
-    airLabsEnricher: { enabled: false },
+    aircraftEnricher: { airLabsEnabled: false },
   });
   const server = await listen(app);
   context.after(() => new Promise((resolve) => server.close(resolve)));
@@ -139,7 +142,7 @@ test("serves a UTC replay day using downsampled frames and historical airports",
     },
     collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
     historyStore,
-    airLabsEnricher: { enabled: false },
+    aircraftEnricher: { airLabsEnabled: false },
   });
   const server = await listen(app);
   context.after(() => new Promise((resolve) => server.close(resolve)));
@@ -172,7 +175,7 @@ test("rejects invalid replay dates and intervals", async (context) => {
     },
     collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
     historyStore: { getHistory: () => [], getReplay: () => [] },
-    airLabsEnricher: { enabled: false },
+    aircraftEnricher: { airLabsEnabled: false },
   });
   const server = await listen(app);
   context.after(() => new Promise((resolve) => server.close(resolve)));
