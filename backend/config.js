@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEMO_FAILURE_MODES } from "./providers/demo.js";
 
 const backendDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.resolve(backendDirectory, "..");
@@ -101,6 +102,10 @@ export function loadConfig(environment = process.env) {
       cacheMs: numberSetting(environment, "AIRLABS_CACHE_MINUTES", 15, { min: 1 }) * 60 * 1000,
       dailyRequestLimit: numberSetting(environment, "AIRLABS_DAILY_REQUEST_LIMIT", 30, { min: 0, max: 1000 }),
     }),
+    // Mentor-only: make the live feed fail on purpose (see backend/providers/demo.js). Blank = off.
+    demoFailure: choiceSetting(environment, "DEMO_FAILURE", "", DEMO_FAILURE_MODES),
+    // Load data.json into replay when the database has no replay dates yet (see backend/seed.js).
+    seedReplayIfEmpty: !["false", "0", "no"].includes(String(environment.SEED_REPLAY_IF_EMPTY ?? "true").trim().toLowerCase()),
     corsOrigins: new Set(
       (environment.CORS_ORIGINS || "")
         .split(",")

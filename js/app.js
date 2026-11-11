@@ -292,10 +292,10 @@ function initializeMap() {
 function fitLiveRegion() {
   const region = state.meta.region;
   if ([region?.latitude, region?.longitude, region?.radiusNm].every(Number.isFinite)) {
-    const bounds = globalThis.L.circle(
-      [region.latitude, region.longitude],
-      { radius: region.radiusNm * 1852 },
-    ).getBounds();
+    // A circle's getBounds() needs the circle to be on the map, so build the box from the centre instead:
+    // toBounds() takes the side length in metres (1 nm = 1852 m), so twice the radius.
+    const bounds = globalThis.L.latLng(region.latitude, region.longitude)
+      .toBounds(region.radiusNm * 1852 * 2);
     map.fitBounds(bounds, {
       paddingTopLeft: [40, 70],
       paddingBottomRight: [40, replayBar.offsetHeight + 30],
@@ -508,6 +508,16 @@ function renderFlights() {
   }
   aircraftCount.textContent = `${visible} AIRCRAFT`;
   emptyNote.hidden = visible > 0;
+  // Two different situations: nothing arrived at all, or the search/filters hide everything.
+  if (currentAircraft().length === 0) {
+    emptyNote.textContent = state.mode === "replay"
+      ? "No recorded aircraft in this replay frame."
+      : state.meta.status === "starting"
+        ? "No live aircraft yet. Waiting for the first update."
+        : "No aircraft in the tracking area right now.";
+  } else {
+    emptyNote.textContent = "No flights match your search or filters.";
+  }
 }
 
 function renderSelection() {
@@ -739,6 +749,9 @@ function renderStatus() {
   if (state.lastError && !state.aircraft.length) {
     statusText.textContent = "LIVE · API UNAVAILABLE";
     statusPill.dataset.state = "stale";
+  } else if (state.meta.status === "starting" && state.meta.warning) {
+    statusText.textContent = "LIVE · NO DATA YET · RETRYING";
+    statusPill.dataset.state = "stale";
   } else if (state.meta.status === "starting") {
     statusText.textContent = "LIVE · CONNECTING";
     statusPill.dataset.state = "stale";
@@ -844,6 +857,19 @@ function applyLiveSnapshot(payload) {
   state.liveAirports = collectAirports(state.aircraft);
   state.lastError = null;
   clearLoadError();
+  // The server is running but has not had one successful provider answer yet: say why on the page,
+  // not only in a tooltip. This is mentor infrastructure; the server keeps retrying by itself.
+  if (state.meta.status === "starting" && state.meta.warning) {
+    const retryAt = Date.parse(state.meta.nextRetryAt);
+    const retrySeconds = Number.isFinite(retryAt) ? Math.max(1, Math.round((retryAt - Date.now()) / 1000)) : null;
+    const retryText = retrySeconds !== null
+      ? ` It will try again in about ${retrySeconds} second${retrySeconds === 1 ? "" : "s"}.`
+      : " It keeps retrying by itself.";
+    showLoadError(
+      "Waiting for live flight data",
+      new Error(`The Flight Tracker server is running, but it could not reach the flight-data providers yet (${state.meta.warning}).${retryText} This is mentor infrastructure, not your code. REPLAY still works for dates that were recorded.`),
+    );
+  }
   if (state.mode === "live") {
     renderCurrent();
     if (!state.mapViewInitialized) fitLiveRegion();

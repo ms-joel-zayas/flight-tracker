@@ -67,6 +67,12 @@ Each successful provider snapshot is stored in SQLite. Schema migration adds new
 
 Increasing retention does not create more provider calls. One server makes about 2,880 primary-position requests per continuously running day regardless of the number of connected browsers; the fallback is called only after a primary failure. ADSBDB makes calls for new, uncached callsigns and at most one additional cached lookup when a user selects an aircraft. Separate backend processes do multiply these numbers, so a single shared backend is recommended for the internship classroom. AirLabs remains capped locally by `AIRLABS_DAILY_REQUEST_LIMIT` and is disabled when its key is blank.
 
+## Replay seed and the demo switch
+
+`backend/seed.js` converts `data.json` (Week 8/9) into one snapshot per period on yesterday's UTC date and stores it with flight session ids starting with `seed:`. The server runs it once when the database has no replay dates (`SEED_REPLAY_IF_EMPTY=true`); `npm run seed` replaces the seeded day and never touches recorded live rows. The 7-day retention removes it like any other day.
+
+`DEMO_FAILURE` (`down`, `stale`, `empty`, `timeout`; blank by default) wraps the position providers (`backend/providers/demo.js`) or delays `/api/aircraft` (`timeout`, 12 s against the browser's 10 s limit), so presentations can show failure states through the real code path. The server logs a warning while it is on, and `/api/health` reports it.
+
 ## Tests
 
 ```sh

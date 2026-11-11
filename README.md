@@ -25,6 +25,19 @@ Open <http://localhost:3000>.
 
 Express serves both the page and `/api`, so do not start a second frontend server. No API key is needed for the default path.
 
+**Replay works from the first run.** When the database has no replay dates yet, the server loads the Week 8/9 `data.json` flights as yesterday's replay (5 frames, 15 minutes apart, UTC). They are the same made-up cross-country placeholders, so they prove the replay path works without a network; real recorded days appear next to them as the server collects live data. Run `npm run seed` to reload them (for example after a week, when the 7-day history window has removed them). Recording and seeding a real Uxbridge-area day is a Challenge idea.
+
+**Showing a failure on purpose (mentors).** Set `DEMO_FAILURE` in `.env` and restart the server:
+
+| `DEMO_FAILURE=` | What the page shows |
+|---|---|
+| `down` | The providers fail from the start: "LIVE · NO DATA YET · RETRYING" and a "Waiting for live flight data" box |
+| `stale` | The first update works, then every update fails: aircraft stay, "RETRYING", then "DATA STALE" after `STALE_AFTER_SECONDS` |
+| `empty` | The providers answer with no aircraft: "No aircraft in the tracking area right now" |
+| `timeout` | `/api/aircraft` answers after 12 s; the browser gives up after 10 s: "API UNAVAILABLE" |
+
+Leave it blank for normal use. Stopping the server (Ctrl+C) with the page open shows the "cannot reach the API" case.
+
 ## Week 10 objective
 
 Make the replay path reliable first, then use the mentor-provided live adapter through the same UI.
@@ -79,7 +92,7 @@ The important idea is the stable middle line: the frontend always calls our API.
 | `GET /api/aircraft/:id/history` | Recent points for its trail and altitude chart |
 | `GET /api/replay/dates` | UTC dates that have recorded data |
 | `GET /api/replay?date=YYYY-MM-DD` | Downsampled replay frames for one day |
-| `GET /api/health` | Feed and provider status for mentors |
+| `GET /api/health` | Feed and provider status for mentors (also shows `demoFailure` when the demo switch is on) |
 
 The live list and replay frames use the same field names, including:
 
@@ -157,6 +170,8 @@ flight-tracker/
     aircraft-enricher.js     selected-aircraft details
     providers/               outside provider adapters
     database.js              SQLite history and replay
+    seed.js                  loads data.json into replay (npm run seed; automatic when empty)
+    providers/demo.js        DEMO_FAILURE: fail on purpose for presentations
   test/                      backend/API contract tests
   docs/                      earlier mentor references
   BACKEND.md                 backend operations and provider details

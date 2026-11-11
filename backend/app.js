@@ -117,8 +117,12 @@ export function createApp({
     next();
   });
 
-  app.get("/api/aircraft", (request, response) => {
+  app.get("/api/aircraft", async (request, response) => {
     response.set("Cache-Control", "no-store");
+    // DEMO_FAILURE=timeout (mentor-only): answer later than the browser waits (js/api.js gives up after 10 s)
+    if (config.demoFailure === "timeout") {
+      await new Promise((resolve) => setTimeout(resolve, config.demoTimeoutMs ?? 12_000));
+    }
     const snapshot = collector.getSnapshot();
     response.status(snapshot.meta.status === "starting" ? 503 : 200).json(snapshot);
   });
@@ -215,6 +219,7 @@ export function createApp({
         },
         airLabs: { enabled: aircraftEnricher.airLabsEnabled },
       },
+      demoFailure: config.demoFailure || null,
       historyRetentionHours: config.historyRetentionHours,
       replayMaxRangeHours: config.replayMaxRangeHours || Math.min(config.historyRetentionHours, 24),
       replayStepSeconds: config.replayStepSeconds || 15 * 60,

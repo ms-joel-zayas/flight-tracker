@@ -130,6 +130,8 @@ export function formatAge(seconds) {
 export function currentUpdateAgeSeconds(meta, now = Date.now()) {
   const updatedAtMs = Date.parse(meta?.updatedAt);
   if (Number.isFinite(updatedAtMs)) return Math.max(0, (now - updatedAtMs) / 1000);
-  const reportedAge = Number(meta?.updateAgeSeconds);
+  // null or missing means "no successful update yet". Number(null) is 0, so check before converting.
+  if (meta?.updateAgeSeconds === null || meta?.updateAgeSeconds === undefined) return null;
+  const reportedAge = Number(meta.updateAgeSeconds);
   return Number.isFinite(reportedAge) ? Math.max(0, reportedAge) : null;
 }

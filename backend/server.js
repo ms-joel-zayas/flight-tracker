@@ -9,6 +9,8 @@ import { AdsbFiProvider } from "./providers/adsbfi.js";
 import { AdsbLolProvider } from "./providers/adsblol.js";
 import { AirLabsProvider } from "./providers/airlabs.js";
 import { PositionProvider } from "./providers/positions.js";
+import { DemoFailureProvider } from "./providers/demo.js";
+import { seedReplay } from "./seed.js";
 
 const config = loadConfig();
 const historyStore = new HistoryStore(config.sqlitePath);
@@ -24,10 +26,20 @@ const positionProviders = config.positionProvider === "adsblol"
 const routeProvider = config.positionProvider === "adsblol"
   ? adsbLolProvider
   : adsbDbProvider;
-const adsbProvider = new PositionProvider({
+const realPositionProvider = new PositionProvider({
   providers: positionProviders,
   routeProvider,
 });
+// DEMO_FAILURE (mentor-only) wraps the real providers so a failure can be shown on purpose.
+const adsbProvider = ["down", "stale", "empty"].includes(config.demoFailure)
+  ? new DemoFailureProvider(realPositionProvider, config.demoFailure)
+  : realPositionProvider;
+
+// A fresh database has nothing to replay yet: load data.json so REPLAY works offline from the first run.
+if (config.seedReplayIfEmpty && historyStore.getReplayDates().length === 0) {
+  const seeded = seedReplay(historyStore);
+  console.log(`Replay was empty: seeded ${seeded.day} (UTC) from data.json (${seeded.frames} frames). Re-run with npm run seed.`);
+}
 const airLabsProvider = new AirLabsProvider(config.airLabs);
 const collector = new FlightCollector({
   config,
@@ -56,6 +68,9 @@ const server = app.listen(config.port, () => {
   console.log(`Position providers: ${positionProviders.map((provider) => provider.name).join(" -> ")}`);
   console.log("Selected-aircraft details: ADSBDB enabled (cached, no key required)");
   console.log(`AirLabs enrichment: ${airLabsEnricher.enabled ? "enabled" : "disabled"}`);
+  if (config.demoFailure) {
+    console.warn(`DEMO_FAILURE=${config.demoFailure} is ON: the live feed is failing on purpose. Remove it from .env for normal use.`);
+  }
 });
 
 function shutdown(signal) {

@@ -68,3 +68,10 @@ test("builds deterministic history windows and readable update ages", () => {
     now,
   ), 30);
 });
+
+test("an update age of null means no update yet, not 'updated now'", () => {
+  assert.equal(currentUpdateAgeSeconds({ updatedAt: null, updateAgeSeconds: null }), null);
+  assert.equal(currentUpdateAgeSeconds({}), null);
+  assert.equal(formatAge(currentUpdateAgeSeconds({ updatedAt: null, updateAgeSeconds: null })), "waiting for first update");
+  assert.equal(currentUpdateAgeSeconds({ updatedAt: null, updateAgeSeconds: 0 }), 0);
+});

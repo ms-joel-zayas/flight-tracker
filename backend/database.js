@@ -217,6 +217,9 @@ export class HistoryStore {
         });
       }
     });
+    this.deleteSeededPositions = this.database.prepare(
+      "DELETE FROM positions WHERE flight_session_id LIKE 'seed:%'",
+    );
     this.deleteOldPositions = this.database.prepare(
       "DELETE FROM positions WHERE captured_at < ?",
     );
@@ -293,6 +296,10 @@ export class HistoryStore {
 
   recordSnapshot(aircraft, capturedAtMs = Date.now()) {
     if (aircraft.length) this.insertSnapshot(aircraft, capturedAtMs);
+  }
+
+  removeSeededPositions() {
+    return this.deleteSeededPositions.run().changes;
   }
 
   removePositionsBefore(timestampMs) {
