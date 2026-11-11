@@ -1,19 +1,56 @@
-# Flight Tracker — Week 10
+# Flight Tracker — Week 10 Student Starter
 
-This is the MatrixSpace and Uxbridge High School internship flight tracker.
+Welcome to Week 10 of the MatrixSpace and Uxbridge High School internship.
 
-> This branch contains the mentor-prepared live-data integration. Students should do the Week 10 challenge in their assigned student branch and use this branch as a reference, not as an answer key to copy.
+This branch, `v5-uxbridge`, is your working branch. Your Week 9 Leaflet map is
+now connected to a mentor-prepared backend, but three small frontend data
+functions are left for you to complete in `js/app.js`. The finished reference
+lives on `v5-final`. Use it when you are stuck, not as code to copy all at once.
 
-Week 10 connects the same frontend to two kinds of data:
+## This week's goal
 
-- **Live:** the browser asks our backend for the latest nearby aircraft.
-- **Replay:** the browser asks the same backend for positions already recorded in SQLite.
+Make the data path reliable:
 
-The frontend does not need to know which outside flight-data service answered. CORS, provider authentication, timeouts, retries, caching, and outages belong to the mentor-owned backend.
+1. Load the available replay dates.
+2. Load recorded aircraft for one date.
+3. Show loading, success, no-data, and error states.
+4. Connect the same interface to live aircraft.
 
-## Run it
+The important idea is that both replay and live data reach the map through our
+own `/api` routes. The frontend does not need to know which outside flight-data
+provider answered.
 
-Requirements: Node.js 20 or newer.
+```text
+Your frontend
+    |
+    | requestJson("/api/aircraft")
+    v
+Mentor-owned backend
+    |
+    +-- ADSB.fi or ADSB.lol for live positions
+    +-- ADSBDB for aircraft and route details
+    +-- optional AirLabs schedule details
+    +-- SQLite for recorded replay
+```
+
+## What you will and will not change
+
+| Path | Your responsibility |
+|---|---|
+| `js/app.js` | Complete the three `WEEK 10 TODO` sections |
+| `index.html` | Optional wording or accessibility improvements |
+| `css/styles.css` | Optional presentation improvements |
+| `js/api.js` | Mentor-prepared; read and use it, but do not replace it |
+| `backend/` | Mentor-owned; do not implement provider or database logic |
+| `.env` | Mentor-owned configuration; never commit it |
+
+You are not responsible for CORS, authentication, API keys, provider outages,
+caching, rate limits, or SQLite. Those concerns are already handled behind the
+stable frontend API.
+
+## Run the project
+
+You need Node.js 20 or newer. From the project folder:
 
 ```sh
 npm install
@@ -21,67 +58,16 @@ cp .env.example .env
 npm start
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000>. Express serves both the page and the API, so do
+not start Live Server or a second Python server for this branch.
 
-Express serves both the page and `/api`, so do not start a second frontend server. No API key is needed for the default path.
+The backend begins recording nearby aircraft as soon as it starts. Replay may
+have only one frame at first; leave it running while you work and more recorded
+positions will appear.
 
-## Week 10 objective
+## The stable aircraft shape
 
-Make the replay path reliable first, then use the mentor-provided live adapter through the same UI.
-
-The page should clearly show:
-
-1. **Loading** — a request is in progress.
-2. **Success** — live aircraft or replay frames arrived.
-3. **No data** — the request worked, but there is nothing to show.
-4. **Error or stale data** — the request failed, or the last good update is too old.
-
-Students are not responsible for solving external API authentication, CORS, proxying, rate limits, or provider outages.
-
-## Student work and mentor-owned code
-
-| Path | Who works here? | Purpose |
-|---|---|---|
-| `index.html` | Students | Page structure and accessible labels |
-| `css/styles.css` | Students | Visual design and responsive layout |
-| `js/app.js` | Students | UI state, loading/error messages, map, selection, and replay controls |
-| `js/api.js` | Mentor-prepared; students may read it | Small, stable browser request and formatting helpers |
-| `backend/` | Mentors | Providers, normalization, retry logic, enrichment, SQLite, and API routes |
-| `.env` / `.env.example` | Mentors | Server-only configuration and optional secrets |
-| `test/` | Mentors | Backend and API contract tests |
-| `data.json`, `js/quality.js`, `tests/` | Earlier-week reference | Week 8/9 data-quality fixtures; not used by the live page at runtime |
-
-Never put provider URLs or API keys in `index.html`, `css/`, or `js/`.
-
-## Request and response flow
-
-```text
-Student frontend
-    |
-    | fetch("/api/aircraft")
-    v
-Mentor-owned Express API
-    |
-    +-- live positions: ADSB.fi, with ADSB.lol fallback
-    +-- aircraft and route details: ADSBDB
-    +-- optional schedule details: AirLabs
-    +-- recorded replay: SQLite
-```
-
-The important idea is the stable middle line: the frontend always calls our API. A provider can fail or be replaced without requiring students to rewrite the interface.
-
-## Frontend API
-
-| Request | What the frontend receives |
-|---|---|
-| `GET /api/aircraft` | Current normalized aircraft, update status, and the tracking region |
-| `GET /api/aircraft/:id` | Extra details for one selected aircraft |
-| `GET /api/aircraft/:id/history` | Recent points for its trail and altitude chart |
-| `GET /api/replay/dates` | UTC dates that have recorded data |
-| `GET /api/replay?date=YYYY-MM-DD` | Downsampled replay frames for one day |
-| `GET /api/health` | Feed and provider status for mentors |
-
-The live list and replay frames use the same field names, including:
+Live aircraft and replay aircraft use the same field names:
 
 ```js
 {
@@ -99,80 +85,131 @@ The live list and replay frames use the same field names, including:
 }
 ```
 
-Some values can be `null`. The UI should say **Not available** or **Route not published** instead of inventing information.
+Some fields can be `null`. That is normal live-data behavior. Display
+**Not available** or **Route not published** rather than inventing a value.
 
-## Aircraft popup and detail panel
+## Complete the challenge
 
-ADSB.fi usually supplies the live position, callsign, registration, aircraft type code, altitude, speed, heading, vertical rate, and squawk. When an aircraft is selected, the backend makes one cached ADSBDB lookup to add the full aircraft model, manufacturer, registered owner or airline operator, and a plausible route when published.
+Open `js/app.js` and search for `WEEK 10 TODO`. Work in this order.
 
-AirLabs is optional. If a mentor configures a key, it can add scheduled departure and arrival information. The core app still works when AirLabs is disabled.
+### Step 1 — Load replay dates
 
-Not every aircraft will have an origin and destination:
+Complete `loadReplayDates()`.
 
-- Small private aircraft often do not publish a flight plan.
-- A callsign can be missing, reused, or temporarily incorrect.
-- A route result is hidden when the current aircraft position makes that route implausible.
-- An outside data source can be unavailable.
+- Request `/api/replay/dates` with `requestJson()`.
+- Store the returned `dates` array in `state.replayDates`.
+- Always call `populateReplayDates()` and `updateReplayControls()`.
+- If the request fails, keep an empty array and log a useful warning.
 
-That is normal live-data behavior and is a useful Week 10 lesson: a successful response can still contain incomplete fields.
+Check the browser's Network tab. A successful request returns JSON similar to:
 
-## How `js/app.js` is organized
-
-The numbered sections follow the pattern used by the earlier `*-final` branches:
-
-1. Grab the page pieces and shared constants.
-2. Keep UI state in one `state` object.
-3. Read normalized live or replay records through small helpers.
-4. Build and update the flight list and Leaflet map.
-5. Load one selected aircraft and its history.
-6. Show loading, success, stale, and error states.
-7. Control replay dates, frames, playback, and speed.
-8. Connect clicks and keyboard input to update functions.
-9. Start the application.
-
-Leaflet still receives `[latitude, longitude]`. Markers, trails, and projected routes are rebuilt from the current state. Selecting a marker opens the same details as selecting its list row.
-
-## What the application currently does
-
-- Polls our backend every 30 seconds by default.
-- Searches by flight number, callsign, tail number, or aircraft ID.
-- Filters by known origin and destination airports.
-- Shows enriched aircraft identity and live movement in the popup and detail panel.
-- Draws a selected aircraft trail and altitude history.
-- Displays emergency broadcasts and emergency squawk codes.
-- Replays retained snapshots by UTC date at 1×, 2×, 5×, or 10×.
-- Keeps the last good snapshot visible when a provider temporarily fails.
-
-## Project layout
-
-```text
-flight-tracker/
-  index.html                 page structure
-  css/styles.css             numbered visual sections
-  js/app.js                  student-facing UI behavior
-  js/api.js                  browser API and formatting helpers
-  backend/                   mentor-owned server implementation
-    app.js                   our stable HTTP routes
-    collector.js             30-second live collection and retry behavior
-    aircraft-enricher.js     selected-aircraft details
-    providers/               outside provider adapters
-    database.js              SQLite history and replay
-  test/                      backend/API contract tests
-  docs/                      earlier mentor references
-  BACKEND.md                 backend operations and provider details
+```json
+{ "dates": ["2026-11-11"] }
 ```
 
-## Tests
+### Step 2 — Load one replay
+
+Complete the middle of `loadReplay()`.
+
+- Treat a missing date as a valid no-data state.
+- Request `/api/replay?date=YYYY-MM-DD`.
+- Put `payload.frames` into `state.replayFrames`.
+- Convert `payload.airports` with `normalizeReplayAirports()`.
+- Reset `state.replayIndex` to `0`.
+- Clear an old error after a successful request.
+- On failure, clear the replay state and call `showLoadError()`.
+
+The surrounding code already starts and ends the loading state. It also
+disables controls while a request is running and ignores a canceled request.
+
+### Step 3 — Connect live data
+
+Complete the `try` and `catch` portions of `refreshLive()`.
+
+- Request `/api/aircraft` with `requestJson()`.
+- Pass a successful response to `applyLiveSnapshot()`.
+- A `503` response can still include the backend's last good snapshot. Use it.
+- For other failures, remember the error, show the load error if no aircraft
+  have ever loaded, and update the status text.
+- Let the provided `finally` block schedule the next refresh.
+
+Do not fetch ADSB.fi, ADSB.lol, ADSBDB, or AirLabs from the browser.
+
+## Required states
+
+Use the page and browser developer tools to confirm all four states:
+
+| State | What the page should communicate |
+|---|---|
+| Loading | A request is currently in progress |
+| Success | Aircraft or replay frames arrived |
+| No data | The request worked, but its array is empty |
+| Error/stale | The request failed, or the last update is too old |
+
+To observe an error after the page has loaded, use the Network tab's **Offline**
+setting briefly, wait for a refresh, and then return it to **No throttling**.
+The last good aircraft should remain visible while the status reports a
+problem.
+
+## Check your work
+
+Run the existing project checks:
 
 ```sh
 npm test
 ```
 
-- `npm run test:backend` checks normalization, providers, fallback behavior, caching, SQLite, replay, and our API contract.
-- `npm run test:frontend` runs the earlier Week 8/9 data-quality answer-key tests.
+Then check the application manually:
 
-See [BACKEND.md](BACKEND.md) for configuration, usage limits, retention, and backend implementation details.
+- Live aircraft appear on the Leaflet map.
+- Search and origin/destination filters still work.
+- Selecting a list row or marker opens the same aircraft details.
+- Replay mode loads dates and recorded frames.
+- Replay play, step, scrubber, and speed controls work.
+- No-data and error states explain what happened instead of showing a blank
+  page.
+- Returning to live mode resumes the current live snapshot.
 
-## Not included on purpose
+## Compare with `v5-final`
 
-Students do not build a provider proxy, manage API credentials, repair an outside service, or guarantee that every aircraft has a route. Direct browser-to-provider integration remains a stretch topic, not a Week 10 requirement.
+First save and commit your own work. Then compare only the file you need:
+
+```sh
+git fetch origin
+git diff v5-uxbridge origin/v5-final -- js/app.js
+```
+
+To view the finished function without changing branches:
+
+```sh
+git show origin/v5-final:js/app.js
+```
+
+The final branch is a mentor reference. Stay on `v5-uxbridge` for your work.
+
+## Save your work
+
+Commit small, working steps:
+
+```sh
+git status
+git add js/app.js
+git commit -m "Load replay dates"
+git push
+```
+
+Repeat with a short message after each completed step.
+
+## Frontend API reference
+
+| Request | What it returns |
+|---|---|
+| `GET /api/aircraft` | Current normalized aircraft and feed status |
+| `GET /api/aircraft/:id` | Extra details for one selected aircraft |
+| `GET /api/aircraft/:id/history` | Recent trail and altitude points |
+| `GET /api/replay/dates` | UTC dates with recorded data |
+| `GET /api/replay?date=YYYY-MM-DD` | Recorded frames for one day |
+
+Not every aircraft has a published origin or destination. Small private
+aircraft may not have a public flight plan, and callsigns can be missing or
+reused. Missing route information is not a frontend bug.
