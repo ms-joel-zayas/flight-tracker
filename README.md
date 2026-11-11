@@ -16,7 +16,7 @@ Open <http://localhost:3000>. Do not open `index.html` directly or use a separat
 
 No API key is required for the default data path. With an empty `AIRLABS_API_KEY`, the backend calculates ETA from remaining great-circle distance and the five most recent valid ground-speed samples. It reports `Departed` only after observing a ground-to-air transition; otherwise an airborne aircraft is labeled `First observed`. AirLabs remains an optional override if access becomes available later.
 
-ADSB.lol route results are used when available. Missing or empty route results are resolved by ADSBDB per callsign with at most four concurrent requests, geographically checked against the aircraft's current position, then cached for six hours. Implausible or unknown routes remain unavailable instead of producing a misleading ETA. General aviation, private, and unusual callsigns may still have no published route.
+ADSB.lol route results are used when available. Missing or empty route results are resolved by ADSBDB per callsign with at most four concurrent requests, geographically checked against the aircraft's current position, then cached for six hours in memory and SQLite. The persistent cache prevents restarts from repeating the same lookups. Implausible or unknown routes remain unavailable instead of producing a misleading ETA. General aviation, private, and unusual callsigns may still have no published route.
 
 ## Browser data flow
 
@@ -26,6 +26,8 @@ ADSB.lol route results are used when available. Missing or empty route results a
 | `GET /api/aircraft/:id` | Loads normalized selected-aircraft details and optional schedule-provider enrichment |
 | `GET /api/aircraft/:id/history` | Draws the selected aircraft trail and altitude chart |
 | `GET /api/replay?from=...&to=...` | Loads the most recent hour into the replay controls |
+| `GET /api/replay?date=YYYY-MM-DD` | Loads one UTC day, downsampled to 15-minute frames by default |
+| `GET /api/replay/dates` | Lists the UTC dates currently present in SQLite |
 | `GET /api/health` | Provides diagnostics; the UI normally uses metadata included with `/api/aircraft` |
 
 The frontend uses only normalized fields such as `latitude`, `longitude`, `altitudeFeet`, `speedKnots`, and `tailNumber`. It never calls ADSB.lol or an optional schedule provider directly.
@@ -39,6 +41,7 @@ The frontend uses only normalized fields such as `latitude`, `longitude`, `altit
 - `departureTimeSource: "first-observed"` means the aircraft was already airborne when tracking began. The UI labels this honestly as `First observed`.
 
 These values are included in live snapshots and stored with every SQLite replay position.
+`flightSessionId` distinguishes a particular callsign session from the physical aircraft's Mode-S `id`, which is important when the same aircraft operates several flights during the replay week.
 
 ## Frontend behavior
 
@@ -49,7 +52,7 @@ These values are included in live snapshots and stored with every SQLite replay 
 - `ETA · CALCULATED`, `Departed`, and `First observed` communicate the provenance of displayed times.
 - The altitude tab graphs real history when at least two altitude samples exist.
 - Emergency broadcasts and standard emergency squawks drive marker, row, and banner alerts.
-- Replay loads recorded SQLite frames for the last hour and supports 1×, 2×, 5×, and 10× speeds.
+- The current frontend loads the most recent hour. The backend also supports seven selectable UTC days, with server-side downsampling for the v4 timeline.
 
 ## Map projection
 
@@ -64,12 +67,16 @@ The map remains a lightweight SVG wireframe. `js/api.js` projects latitude/longi
 | `TRACKING_RADIUS_NM` | `25` | ADSB.lol radius and frontend map bounds |
 | `POLL_INTERVAL_MS` | `30000` | Backend provider polling interval |
 | `STALE_AFTER_SECONDS` | `60` | Age at which the feed is degraded |
-| `HISTORY_RETENTION_HOURS` | `24` | SQLite position retention |
+| `HISTORY_RETENTION_HOURS` | `168` | SQLite position retention (seven days) |
+| `REPLAY_MAX_RANGE_HOURS` | `24` | Maximum time span returned by one replay request |
+| `REPLAY_STEP_SECONDS` | `900` | Default interval for date-based replay (96 frames/day) |
 | `ADSBDB_BASE_URL` | `https://api.adsbdb.com` | Free route fallback service |
 | `ADSBDB_MAX_CONCURRENCY` | `4` | Maximum simultaneous fallback lookups on a cache miss |
 | `AIRLABS_API_KEY` | empty | Optional schedule-provider override; not required for ETA or progress |
 
 Never put provider credentials in frontend files or commit `.env`.
+
+The collector makes one ADSB.lol position request every 30 seconds, about 2,880 per continuously running day. Browser clients share that collector and do not multiply upstream traffic. Provider `429` responses honor `Retry-After` and trigger exponential backoff. For a classroom, prefer one shared live backend rather than one continuously running backend per student. ADSB.lol data is published under ODbL 1.0 and should be attributed in any displayed or redistributed dataset.
 
 ## Project layout
 
@@ -78,7 +85,7 @@ backend/
   aircraft.js            Normalization and derived flight calculations
   app.js                 Express routes and static frontend
   collector.js           Provider polling, route caching, and flight sessions
-  database.js            SQLite history, migrations, and provider usage
+  database.js            SQLite history, replay buckets, airports, route cache, migrations, and provider usage
   providers/             ADSB.lol, ADSBDB fallback, and optional AirLabs clients
 css/styles.css            Wireframe styles
 js/api.js                 Browser API client and map/data helpers
@@ -94,7 +101,7 @@ data.json                 Legacy demo fixture; no longer used at runtime
 npm test
 ```
 
-Tests cover provider normalization, derived ETA/progress, departure transitions, SQLite migration and persistence, API routes, and frontend projection helpers.
+Tests cover provider normalization and backoff, derived ETA/progress, flight sessions, SQLite migration and persistence, replay bucketing, API routes, and frontend projection helpers.
 
 ## Current limitations
 
@@ -102,4 +109,4 @@ Tests cover provider normalization, derived ETA/progress, departure transitions,
 - Origin, destination, progress, and ETA depend on ADSB.lol or ADSBDB resolving route waypoints.
 - Calculated ETA does not account for winds, routing changes, holding, or approach delays.
 - Departure observation state starts with the server process; restarting midflight produces `First observed`, not an invented departure time.
-- Replay currently requests the most recent hour even though SQLite retains 24 hours by default.
+- The current frontend exposes only the most recent hour; the v4 integration still needs to connect its date picker to the date-based replay endpoint.

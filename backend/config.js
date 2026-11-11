@@ -26,6 +26,21 @@ function resolveFromProject(value) {
 
 export function loadConfig(environment = process.env) {
   const sqlitePath = environment.SQLITE_PATH || "backend/data/flight-tracker.db";
+  const historyRetentionHours = numberSetting(
+    environment,
+    "HISTORY_RETENTION_HOURS",
+    168,
+    { min: 1, max: 168 },
+  );
+  const replayMaxRangeHours = numberSetting(
+    environment,
+    "REPLAY_MAX_RANGE_HOURS",
+    24,
+    { min: 1, max: 24 },
+  );
+  if (replayMaxRangeHours > historyRetentionHours) {
+    throw new Error("REPLAY_MAX_RANGE_HOURS cannot exceed HISTORY_RETENTION_HOURS");
+  }
 
   return Object.freeze({
     projectDirectory,
@@ -37,7 +52,14 @@ export function loadConfig(environment = process.env) {
     }),
     pollIntervalMs: numberSetting(environment, "POLL_INTERVAL_MS", 30_000, { min: 5_000 }),
     staleAfterSeconds: numberSetting(environment, "STALE_AFTER_SECONDS", 60, { min: 1 }),
-    historyRetentionHours: numberSetting(environment, "HISTORY_RETENTION_HOURS", 24, { min: 1, max: 168 }),
+    historyRetentionHours,
+    replayMaxRangeHours,
+    replayStepSeconds: numberSetting(
+      environment,
+      "REPLAY_STEP_SECONDS",
+      15 * 60,
+      { min: 30, max: 60 * 60 },
+    ),
     sqlitePath: resolveFromProject(sqlitePath),
     adsbLol: Object.freeze({
       baseUrl: environment.ADSBLOL_BASE_URL || "https://api.adsb.lol",

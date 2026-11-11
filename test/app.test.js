@@ -30,6 +30,8 @@ test("serves the normalized aircraft snapshot", async (context) => {
   const historyStore = {
     getHistory: () => [position],
     getReplay: () => [position],
+    getReplayDates: () => ["2026-10-14"],
+    getAirportsForWindow: () => [],
   };
   const airLabsEnricher = {
     enabled: false,
@@ -37,7 +39,9 @@ test("serves the normalized aircraft snapshot", async (context) => {
   };
   const config = {
     projectDirectory,
-    historyRetentionHours: 24,
+    historyRetentionHours: 168,
+    replayMaxRangeHours: 24,
+    replayStepSeconds: 900,
     corsOrigins: new Set(),
   };
   const server = await listen(createApp({ config, collector, historyStore, airLabsEnricher }));
@@ -66,6 +70,11 @@ test("serves the normalized aircraft snapshot", async (context) => {
   assert.equal(replayResponse.status, 200);
   const replay = await replayResponse.json();
   assert.equal(replay.frames[0].aircraft[0].id, aircraft.id);
+  assert.deepEqual(replay.availableDates, ["2026-10-14"]);
+
+  const datesResponse = await fetch(`http://127.0.0.1:${address.port}/api/replay/dates`);
+  assert.equal(datesResponse.status, 200);
+  assert.deepEqual((await datesResponse.json()).dates, ["2026-10-14"]);
 
   const healthResponse = await fetch(`http://127.0.0.1:${address.port}/api/health`);
   assert.equal(healthResponse.status, 200);
@@ -75,11 +84,20 @@ test("serves the normalized aircraft snapshot", async (context) => {
 
   const frontendModule = await fetch(`http://127.0.0.1:${address.port}/js/api.js`);
   assert.equal(frontendModule.status, 200);
+
+  const leafletModule = await fetch(`http://127.0.0.1:${address.port}/vendor/leaflet/leaflet.js`);
+  assert.equal(leafletModule.status, 200);
 });
 
 test("rejects an invalid replay time window", async (context) => {
   const app = createApp({
-    config: { projectDirectory, historyRetentionHours: 24, corsOrigins: new Set() },
+    config: {
+      projectDirectory,
+      historyRetentionHours: 168,
+      replayMaxRangeHours: 24,
+      replayStepSeconds: 900,
+      corsOrigins: new Set(),
+    },
     collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
     historyStore: { getHistory: () => [], getReplay: () => [] },
     airLabsEnricher: { enabled: false },
@@ -92,4 +110,81 @@ test("rejects an invalid replay time window", async (context) => {
   );
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /earlier than/);
+});
+
+test("serves a UTC replay day using downsampled frames and historical airports", async (context) => {
+  const calls = [];
+  const historyStore = {
+    getHistory: () => [],
+    getReplay: () => [],
+    getBucketedReplay: (from, to, interval, limit) => {
+      calls.push({ from, to, interval, limit });
+      return [{
+        id: "a12aa1",
+        capturedAt: "2026-10-14T00:14:30.000Z",
+        latitude: 42.4,
+        longitude: -71.4,
+      }];
+    },
+    getReplayDates: () => ["2026-10-14", "2026-10-13"],
+    getAirportsForWindow: () => [{ code: "BOS", latitude: 42.3656, longitude: -71.0096 }],
+  };
+  const app = createApp({
+    config: {
+      projectDirectory,
+      historyRetentionHours: 168,
+      replayMaxRangeHours: 24,
+      replayStepSeconds: 900,
+      corsOrigins: new Set(),
+    },
+    collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
+    historyStore,
+    airLabsEnricher: { enabled: false },
+  });
+  const server = await listen(app);
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+
+  const response = await fetch(
+    `http://127.0.0.1:${address.port}/api/replay?date=2026-10-14&intervalSeconds=900`,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.date, "2026-10-14");
+  assert.equal(payload.intervalSeconds, 900);
+  assert.equal(payload.frames.length, 1);
+  assert.equal(payload.airports[0].code, "BOS");
+  assert.deepEqual(payload.availableDates, ["2026-10-14", "2026-10-13"]);
+  assert.equal(calls[0].from, Date.parse("2026-10-14T00:00:00.000Z"));
+  assert.equal(calls[0].to, Date.parse("2026-10-14T23:59:59.999Z"));
+  assert.equal(calls[0].interval, 900);
+  assert.equal(calls[0].limit, 50_001);
+});
+
+test("rejects invalid replay dates and intervals", async (context) => {
+  const app = createApp({
+    config: {
+      projectDirectory,
+      historyRetentionHours: 168,
+      replayMaxRangeHours: 24,
+      replayStepSeconds: 900,
+      corsOrigins: new Set(),
+    },
+    collector: { getSnapshot: () => ({ meta: { status: "live" }, aircraft: [] }) },
+    historyStore: { getHistory: () => [], getReplay: () => [] },
+    airLabsEnricher: { enabled: false },
+  });
+  const server = await listen(app);
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+
+  const badDate = await fetch(`http://127.0.0.1:${address.port}/api/replay?date=2026-02-30`);
+  assert.equal(badDate.status, 400);
+  assert.match((await badDate.json()).error, /real calendar date/);
+
+  const badInterval = await fetch(
+    `http://127.0.0.1:${address.port}/api/replay?date=2026-10-14&intervalSeconds=5`,
+  );
+  assert.equal(badInterval.status, 400);
+  assert.match((await badInterval.json()).error, /30 to 3600/);
 });

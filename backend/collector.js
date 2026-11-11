@@ -2,18 +2,28 @@ import { applyDerivedFlightData, applyRoute, normalizeAdsbAircraft } from "./air
 
 const SESSION_EXPIRY_MS = 30 * 60 * 1000;
 const RECENT_SPEED_SAMPLES = 5;
+const MAX_COLLECTION_BACKOFF_MS = 15 * 60 * 1000;
+const ROUTE_ERROR_CACHE_MS = 5 * 60 * 1000;
 
 function isoOrNull(timestamp) {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
 export class FlightCollector {
-  constructor({ config, adsbProvider, historyStore, logger = console, now = Date.now }) {
+  constructor({
+    config,
+    adsbProvider,
+    historyStore,
+    logger = console,
+    now = Date.now,
+    random = Math.random,
+  }) {
     this.config = config;
     this.adsbProvider = adsbProvider;
     this.historyStore = historyStore;
     this.logger = logger;
     this.now = now;
+    this.random = random;
     this.aircraft = [];
     this.routeCache = new Map();
     this.flightSessions = new Map();
@@ -22,6 +32,8 @@ export class FlightCollector {
     this.lastError = null;
     this.routeWarning = null;
     this.collecting = false;
+    this.consecutiveFailures = 0;
+    this.nextCollectionAttemptMs = 0;
     this.timer = null;
   }
 
@@ -36,7 +48,8 @@ export class FlightCollector {
   }
 
   async collect() {
-    if (this.collecting) return;
+    const attemptStartedAtMs = this.now();
+    if (this.collecting || attemptStartedAtMs < this.nextCollectionAttemptMs) return;
     this.collecting = true;
 
     try {
@@ -63,9 +76,22 @@ export class FlightCollector {
       this.providerTimestampMs = providerTimestampMs;
       this.lastSuccessfulFetchMs = capturedAtMs;
       this.lastError = null;
+      this.consecutiveFailures = 0;
+      this.nextCollectionAttemptMs = 0;
     } catch (error) {
       this.lastError = error.message;
-      this.logger.warn(`Live aircraft update failed: ${error.message}`);
+      this.consecutiveFailures += 1;
+      const exponentialDelayMs = Math.min(
+        this.config.pollIntervalMs * 2 ** (this.consecutiveFailures - 1),
+        MAX_COLLECTION_BACKOFF_MS,
+      );
+      const requestedDelayMs = Number.isFinite(error.retryAfterMs) ? error.retryAfterMs : 0;
+      const baseDelayMs = Math.max(exponentialDelayMs, requestedDelayMs);
+      const jitterMs = Math.round(baseDelayMs * 0.1 * this.random());
+      this.nextCollectionAttemptMs = attemptStartedAtMs + baseDelayMs + jitterMs;
+      this.logger.warn(
+        `Live aircraft update failed: ${error.message}; retrying after ${Math.round((baseDelayMs + jitterMs) / 1000)}s`,
+      );
     } finally {
       this.collecting = false;
     }
@@ -74,41 +100,71 @@ export class FlightCollector {
   async addRoutes(aircraft, timestampMs) {
     const missingRoutes = aircraft.filter((item) => {
       if (!item.callsign) return false;
-      const cached = this.routeCache.get(item.callsign);
-      return !cached || cached.expiresAt <= timestampMs;
+      return !this.getCachedRoute(item.callsign, timestampMs);
     });
 
     if (missingRoutes.length) {
       try {
         const routes = await this.adsbProvider.fetchRoutes(missingRoutes);
         for (const item of missingRoutes.slice(0, 100)) {
-          this.routeCache.set(item.callsign, {
-            route: routes.get(item.callsign) || null,
-            expiresAt: timestampMs + this.config.adsbLol.routeCacheMs,
-          });
+          this.cacheRoute(
+            item.callsign,
+            routes.get(item.callsign) || null,
+            timestampMs + this.config.adsbLol.routeCacheMs,
+            timestampMs,
+          );
         }
         this.routeWarning = null;
       } catch (error) {
         this.routeWarning = error.message;
+        for (const item of missingRoutes.slice(0, 100)) {
+          this.cacheRoute(
+            item.callsign,
+            null,
+            timestampMs + Math.min(ROUTE_ERROR_CACHE_MS, this.config.adsbLol.routeCacheMs),
+            timestampMs,
+          );
+        }
         this.logger.warn(`Aircraft route update failed: ${error.message}`);
       }
     }
 
     return aircraft.map((item) => applyRoute(
       item,
-      item.callsign ? this.routeCache.get(item.callsign)?.route : null,
+      item.callsign ? this.getCachedRoute(item.callsign, timestampMs)?.route : null,
     ));
+  }
+
+  getCachedRoute(callsign, timestampMs) {
+    const normalized = callsign.toUpperCase();
+    const memoryCached = this.routeCache.get(normalized);
+    if (memoryCached?.expiresAt > timestampMs) return memoryCached;
+    this.routeCache.delete(normalized);
+
+    const persisted = this.historyStore.getRouteCache?.(normalized, timestampMs) || null;
+    if (persisted) this.routeCache.set(normalized, persisted);
+    return persisted;
+  }
+
+  cacheRoute(callsign, route, expiresAt, updatedAt) {
+    const normalized = callsign.toUpperCase();
+    const cached = { route, expiresAt };
+    this.routeCache.set(normalized, cached);
+    this.historyStore.setRouteCache?.(normalized, route, expiresAt, updatedAt);
   }
 
   addObservedFlightData(aircraft, capturedAtMs) {
     const activeIds = new Set(aircraft.map((item) => item.id));
     const enriched = aircraft.map((item) => {
       let session = this.flightSessions.get(item.id);
-      const callsignChanged = session?.callsign && item.callsign && session.callsign !== item.callsign;
+      const callsignChanged = session
+        && session.callsign !== item.callsign
+        && Boolean(session.callsign || item.callsign);
       const sessionExpired = session && capturedAtMs - session.lastSeenAtMs > SESSION_EXPIRY_MS;
       if (!session || callsignChanged || sessionExpired) {
         session = {
           callsign: item.callsign,
+          flightSessionId: `${item.id}:${item.callsign || "unknown"}:${capturedAtMs}`,
           firstObservedAt: item.observedAt,
           departureTime: item.onGround ? null : item.observedAt,
           departureTimeSource: item.onGround ? null : "first-observed",
@@ -136,6 +192,7 @@ export class FlightCollector {
         : item.speedKnots;
       return applyDerivedFlightData({
         ...item,
+        flightSessionId: session.flightSessionId,
         firstObservedAt: session.firstObservedAt,
         departureTime: session.departureTime,
         departureTimeSource: session.departureTimeSource,
@@ -178,6 +235,10 @@ export class FlightCollector {
         total: aircraft.length,
         region: this.config.tracking,
         warning: this.lastError || this.routeWarning,
+        consecutiveFailures: this.consecutiveFailures,
+        nextRetryAt: this.nextCollectionAttemptMs
+          ? isoOrNull(this.nextCollectionAttemptMs)
+          : null,
       },
       aircraft,
     };

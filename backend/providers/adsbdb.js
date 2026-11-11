@@ -6,6 +6,14 @@ const MIN_ROUTE_DISTANCE_NM = 1;
 const MIN_ROUTE_ALLOWANCE_NM = 100;
 const ROUTE_ALLOWANCE_RATIO = 0.2;
 
+function retryAfterMilliseconds(response, nowMs = Date.now()) {
+  const value = response.headers.get("retry-after");
+  if (!value) return null;
+  if (/^\d+(\.\d+)?$/.test(value.trim())) return Math.max(0, Number(value) * 1000);
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - nowMs) : null;
+}
+
 function normalizedCallsign(value) {
   return typeof value === "string" ? value.trim().toUpperCase() : "";
 }
@@ -106,7 +114,12 @@ export class AdsbDbProvider {
       },
     );
     if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`ADSBDB returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`ADSBDB returned HTTP ${response.status}`);
+      error.statusCode = response.status;
+      error.retryAfterMs = retryAfterMilliseconds(response);
+      throw error;
+    }
     return normalizeAdsbDbRoute(await response.json());
   }
 

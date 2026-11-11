@@ -2,7 +2,9 @@ import path from "node:path";
 import express from "express";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 const MAX_REPLAY_ROWS = 50_000;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseTimestamp(value, fallback) {
   if (value === undefined) return fallback;
@@ -14,11 +16,15 @@ function parseTimestamp(value, fallback) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function requestedWindow(request, config, defaultDurationMs = ONE_HOUR_MS) {
+function requestedWindow(
+  request,
+  config,
+  defaultDurationMs = ONE_HOUR_MS,
+  maximumDurationMs = config.historyRetentionHours * ONE_HOUR_MS,
+) {
   const now = Date.now();
   const toMs = parseTimestamp(request.query.to, now);
   const fromMs = parseTimestamp(request.query.from, toMs - defaultDurationMs);
-  const maximumRangeMs = config.historyRetentionHours * ONE_HOUR_MS;
 
   if (fromMs === null || toMs === null) {
     return { error: "from and to must be ISO dates or millisecond timestamps" };
@@ -26,10 +32,49 @@ function requestedWindow(request, config, defaultDurationMs = ONE_HOUR_MS) {
   if (fromMs >= toMs) {
     return { error: "from must be earlier than to" };
   }
-  if (toMs - fromMs > maximumRangeMs) {
-    return { error: `The requested range cannot exceed ${config.historyRetentionHours} hours` };
+  if (toMs - fromMs > maximumDurationMs) {
+    return { error: `The requested range cannot exceed ${maximumDurationMs / ONE_HOUR_MS} hours` };
   }
   return { fromMs, toMs };
+}
+
+function replayRequest(request, config) {
+  const requestedDate = request.query.date;
+  const rawInterval = request.query.intervalSeconds;
+  const intervalSeconds = rawInterval === undefined
+    ? requestedDate ? config.replayStepSeconds : null
+    : Number(rawInterval);
+
+  if (intervalSeconds !== null
+    && (!Number.isFinite(intervalSeconds) || intervalSeconds < 30 || intervalSeconds > 3600)) {
+    return { error: "intervalSeconds must be a number from 30 to 3600" };
+  }
+
+  if (requestedDate !== undefined) {
+    if (!ISO_DATE_PATTERN.test(requestedDate)) {
+      return { error: "date must use YYYY-MM-DD" };
+    }
+    const fromMs = Date.parse(`${requestedDate}T00:00:00.000Z`);
+    if (!Number.isFinite(fromMs) || new Date(fromMs).toISOString().slice(0, 10) !== requestedDate) {
+      return { error: "date must be a real calendar date" };
+    }
+    return {
+      date: requestedDate,
+      fromMs,
+      toMs: fromMs + ONE_DAY_MS - 1,
+      intervalSeconds,
+    };
+  }
+
+  const maximumRangeHours = config.replayMaxRangeHours
+    || Math.min(config.historyRetentionHours, 24);
+  const window = requestedWindow(
+    request,
+    config,
+    ONE_HOUR_MS,
+    maximumRangeHours * ONE_HOUR_MS,
+  );
+  return window.error ? window : { ...window, date: null, intervalSeconds };
 }
 
 function groupReplayFrames(points) {
@@ -99,23 +144,38 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
     });
   });
 
+  app.get("/api/replay/dates", (request, response) => {
+    response.set("Cache-Control", "no-store");
+    response.json({
+      dates: historyStore.getReplayDates?.() || [],
+      retentionHours: config.historyRetentionHours,
+    });
+  });
+
   app.get("/api/replay", (request, response) => {
     response.set("Cache-Control", "no-store");
-    const window = requestedWindow(request, config);
+    const window = replayRequest(request, config);
     if (window.error) return response.status(400).json({ error: window.error });
 
-    const points = historyStore.getReplay(
-      window.fromMs,
-      window.toMs,
-      MAX_REPLAY_ROWS + 1,
-    );
+    const points = window.intervalSeconds && historyStore.getBucketedReplay
+      ? historyStore.getBucketedReplay(
+          window.fromMs,
+          window.toMs,
+          window.intervalSeconds,
+          MAX_REPLAY_ROWS + 1,
+        )
+      : historyStore.getReplay(window.fromMs, window.toMs, MAX_REPLAY_ROWS + 1);
     const truncated = points.length > MAX_REPLAY_ROWS;
     if (truncated) points.pop();
 
     response.json({
+      date: window.date,
       from: new Date(window.fromMs).toISOString(),
       to: new Date(window.toMs).toISOString(),
+      intervalSeconds: window.intervalSeconds,
       truncated,
+      availableDates: historyStore.getReplayDates?.() || [],
+      airports: historyStore.getAirportsForWindow?.(window.fromMs, window.toMs) || [],
       frames: groupReplayFrames(points),
     });
   });
@@ -134,6 +194,9 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
         airLabs: { enabled: airLabsEnricher.enabled },
       },
       historyRetentionHours: config.historyRetentionHours,
+      replayMaxRangeHours: config.replayMaxRangeHours || Math.min(config.historyRetentionHours, 24),
+      replayStepSeconds: config.replayStepSeconds || 15 * 60,
+      availableReplayDates: historyStore.getReplayDates?.() || [],
     });
   });
 
@@ -142,6 +205,10 @@ export function createApp({ config, collector, historyStore, airLabsEnricher }) 
   });
   app.use("/css", express.static(path.join(config.projectDirectory, "css")));
   app.use("/js", express.static(path.join(config.projectDirectory, "js")));
+  app.use(
+    "/vendor/leaflet",
+    express.static(path.join(config.projectDirectory, "node_modules", "leaflet", "dist")),
+  );
 
   app.use("/api", (request, response) => {
     response.status(404).json({ error: "API endpoint not found" });

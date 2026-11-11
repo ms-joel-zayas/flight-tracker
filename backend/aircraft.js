@@ -50,6 +50,7 @@ export function normalizeAdsbAircraft(rawAircraft, providerTimestampMs, staleAft
 
   return {
     id,
+    flightSessionId: null,
     callsign,
     flightNumber: callsign,
     tailNumber: textOrNull(rawAircraft.r)?.toUpperCase() || null,

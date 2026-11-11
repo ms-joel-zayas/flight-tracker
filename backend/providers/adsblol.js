@@ -1,5 +1,13 @@
 const REQUEST_TIMEOUT_MS = 10_000;
 
+function retryAfterMilliseconds(response, nowMs = Date.now()) {
+  const value = response.headers.get("retry-after");
+  if (!value) return null;
+  if (/^\d+(\.\d+)?$/.test(value.trim())) return Math.max(0, Number(value) * 1000);
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - nowMs) : null;
+}
+
 function normalizedCallsign(value) {
   return typeof value === "string" ? value.trim().toUpperCase() : "";
 }
@@ -81,7 +89,10 @@ export class AdsbLolProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`ADSB.lol returned HTTP ${response.status}`);
+      const error = new Error(`ADSB.lol returned HTTP ${response.status}`);
+      error.statusCode = response.status;
+      error.retryAfterMs = retryAfterMilliseconds(response);
+      throw error;
     }
 
     const text = await response.text();

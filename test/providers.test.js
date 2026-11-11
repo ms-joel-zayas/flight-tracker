@@ -98,6 +98,26 @@ test("falls back to ADSBDB when ADSB.lol routeset returns an empty response", as
   assert.equal(routes.get("JBU1155"), fallbackRoute);
 });
 
+test("preserves Retry-After guidance from ADSB.lol", async () => {
+  const provider = new AdsbLolProvider({
+    baseUrl: "https://example.test",
+    userAgent: "flight-tracker-test",
+    fetchImpl: async () => new Response(null, {
+      status: 429,
+      headers: { "Retry-After": "120" },
+    }),
+  });
+
+  await assert.rejects(
+    provider.fetchAircraft({ latitude: 42, longitude: -71, radiusNm: 25 }),
+    (error) => {
+      assert.equal(error.statusCode, 429);
+      assert.equal(error.retryAfterMs, 120_000);
+      return true;
+    },
+  );
+});
+
 test("normalizes AirLabs UTC route and ETA fields", () => {
   const flight = normalizeAirLabsFlight({
     flight_icao: "UAL1783",
