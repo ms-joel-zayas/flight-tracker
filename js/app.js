@@ -13,6 +13,9 @@
    WEEK 9: the planes and airports are drawn on a real Leaflet map.
    Every airport and every position has a lat and a lon (degrees).
    Leaflet takes a place as [lat, lon]: latitude FIRST.
+
+   NEW: each airborne plane has a solid line behind it (path flown). The
+   selected flight also gets a dashed line ahead of it (projected path).
    ===================================================================== */
 
 const DATA_URL = "data/flights.json";
@@ -204,12 +207,14 @@ let liveTimer     = null;   // refreshes live data every 5 s
 let tickTimer     = null;   // live clock, slider and "Updated Ns ago" every 1 s
 let flightRows = [];
 
-// The Leaflet map. It is built once; airports and planes live in two layer
-// groups so a new day can clear them and draw again.
+// The Leaflet map. It is built once; airports, paths and planes live in
+// layer groups so a new day can clear them and draw again.
 let map = null;
 let airportLayer = null;
+let pathLayer = null;
 let planeLayer = null;
 let leafletMarkers = {};    // flight id -> Leaflet marker
+let leafletPaths = {};      // flight id -> { flown, ahead, from, to }
 
 
 /* ---------- STEP 2. State ---------- */
@@ -293,6 +298,26 @@ function planeButton(id) {
   return element ? element.querySelector("button") : null;
 }
 
+// Draw the path for one flight. Pass a position while it is airborne,
+// or null when it is on the ground (the lines are then removed).
+//   solid line  = from the origin airport to where the plane is now (always shown)
+//   dashed line = from where the plane is now to the destination airport
+//                 (its points are set here, but it is only drawn for the selected flight)
+function updatePath(id, position) {
+  const path = leafletPaths[id];
+  if (!path) return;
+
+  if (position) {
+    const here = toLatLng(position);
+    path.flown.setLatLngs([path.from, here]);
+    path.ahead.setLatLngs([here, path.to]);   // only shown for the selected flight (see updateMarkerStates)
+    if (!pathLayer.hasLayer(path.flown)) pathLayer.addLayer(path.flown);
+  } else {
+    pathLayer.removeLayer(path.flown);
+    pathLayer.removeLayer(path.ahead);
+  }
+}
+
 
 /* ---------- STEP 3. Build the page from the data ---------- */
 function buildPage(data) {
@@ -335,14 +360,18 @@ function buildMap(data) {
       console.warn("Map tiles could not load (no internet?). Aircraft are still drawn.");
     });
 
+    // Order matters: airports at the bottom, then path lines, then planes.
     airportLayer = L.layerGroup().addTo(map);
+    pathLayer    = L.layerGroup().addTo(map);
     planeLayer   = L.layerGroup().addTo(map);
   }
 
-  // Remove the previous day's airports and markers.
+  // Remove the previous day's airports, paths and markers.
   airportLayer.clearLayers();
+  pathLayer.clearLayers();
   planeLayer.clearLayers();
   leafletMarkers = {};
+  leafletPaths = {};
 
   // 3. zoom so every airport fits
   map.fitBounds(data.airports.map(toLatLng));
@@ -377,6 +406,26 @@ function buildMap(data) {
 
     leafletMarkers[flight.id] = marker;
   });
+
+  // 5. path lines: solid = already flown, dashed = still to fly.
+  //    Their points are set in updatePath(); they are only on the map while
+  //    the plane is airborne. Leaflet draws lines under markers, so the
+  //    plane buttons always sit on top.
+  const airportsByCode = {};
+  data.airports.forEach((a) => { airportsByCode[a.code] = a; });
+
+  data.flights.forEach((flight) => {
+    const from = airportsByCode[flight.origin];
+    const to   = airportsByCode[flight.destination];
+    if (!from || !to) return;
+
+    leafletPaths[flight.id] = {
+      from: toLatLng(from),
+      to:   toLatLng(to),
+      flown: L.polyline([], { color: "#000", weight: 3, interactive: false }),
+      ahead: L.polyline([], { color: "#000", weight: 2, opacity: 0.6, dashArray: "8 8", interactive: false })
+    };
+  });
 }
 
 
@@ -394,6 +443,7 @@ function showSnapshot(period, jump) {
       marker.setLatLng(toLatLng(position));
       marker.setPopupContent(popupHtml(state.flightsById[id], position));
       if (!planeLayer.hasLayer(marker)) planeLayer.addLayer(marker);   // show it
+      updatePath(id, position);                                        // draw its lines
     } else {
       // No entry at all = the plane is on the ground (normal).
       // An entry with a bad or missing lat/lon = a data problem: say so.
@@ -401,6 +451,7 @@ function showSnapshot(period, jump) {
         console.warn("No usable lat/lon for " + id + " at " + period.time);
       }
       planeLayer.removeLayer(marker);                                  // leave it off the map
+      updatePath(id, null);                                            // remove its lines
     }
   });
 
@@ -487,6 +538,20 @@ function updateMarkerStates() {
     if (button) {
       setPressed(button, id === state.selectedId);
       button.classList.toggle("is-dimmed", !flightMatches(row));   // dim, don't hide
+    }
+
+    // The flown line is always shown (thicker when selected). The dashed
+    // projected line only appears for the selected flight, and only while it is airborne.
+    const path = leafletPaths[id];
+    if (path) {
+      const selected = id === state.selectedId;
+      const airborne = pathLayer.hasLayer(path.flown);
+      path.flown.setStyle({ weight: selected ? 5 : 3 });
+      if (selected && airborne) {
+        if (!pathLayer.hasLayer(path.ahead)) pathLayer.addLayer(path.ahead);
+      } else {
+        pathLayer.removeLayer(path.ahead);
+      }
     }
   });
 }
