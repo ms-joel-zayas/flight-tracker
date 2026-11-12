@@ -1,19 +1,18 @@
 /* =====================================================================
-   FLIGHT TRACKER — WEEK 10 LIVE + REPLAY FRONTEND
+   FLIGHT TRACKER — LIVE + REPLAY FRONTEND
 
    JavaScript = behavior. This file controls what happens when someone
    searches, selects an aircraft, changes replay time, or refreshes data.
 
-   The important Week 10 boundary:
-     browser -> our /api routes -> mentor-owned backend -> data providers
+   The important boundary:
+     browser -> our /api routes -> backend -> data providers
 
    The browser never calls ADSB.fi, ADSB.lol, ADSBDB, or AirLabs directly.
    It receives the same aircraft shape whether data is live or recorded.
 
-   STUDENT CHALLENGE:
-     Search this file for "WEEK 10 TODO". Complete the three numbered
-     sections in the order described in README.md. The map, backend, API
-     helper, rendering functions, and replay controls are already provided.
+   All three API sections (live data, replay dates, replay day) are now
+   connected. Every aircraft also draws a solid line from where it departed
+   to where it is now, and a dashed line ahead to its destination.
 
    How this file is organized:
      1. Page pieces and constants
@@ -78,6 +77,7 @@ const state = {
   replayDates: [],
   replayFrames: [],
   replayTruncated: false,
+  replayIsDemo: false,
   replayLoading: false,
   replayIndex: 0,
   selectedId: null,
@@ -103,6 +103,7 @@ const rowById = new Map();
 const markerById = new Map();
 const mapMarkerById = new Map();
 const pathById = new Map();
+let recordedReplayDates = new Set();   // days the backend really recorded
 
 let map = null;
 let airportLayer = null;
@@ -162,20 +163,10 @@ function replayAircraft() {
   return (state.replayFrames[state.replayIndex]?.aircraft || []).map(replayPoint);
 }
 
-function currentAircraft() {
-  return state.mode === "replay" ? replayAircraft() : state.aircraft;
-}
-
-function currentAirports() {
-  return state.mode === "replay" ? state.replayAirports : state.liveAirports;
-}
-
-function currentAircraftById(id) {
-  const current = currentAircraft().find((aircraft) => aircraft.id === id);
-  if (state.mode === "replay") return current || null;
-
-  const detail = state.detailsById.get(id);
-  if (!current || !detail) return detail || current || null;
+// Combine a live aircraft with the route/identity details we looked up for it.
+function mergeDetail(current) {
+  const detail = state.detailsById.get(current.id);
+  if (!detail) return current;
   return {
     ...detail,
     ...current,
@@ -197,6 +188,20 @@ function currentAircraftById(id) {
     status: detail.status || current.status,
     enrichment: detail.enrichment,
   };
+}
+
+function currentAircraft() {
+  return state.mode === "replay" ? replayAircraft() : state.aircraft.map(mergeDetail);
+}
+
+function currentAirports() {
+  return state.mode === "replay" ? state.replayAirports : state.liveAirports;
+}
+
+function currentAircraftById(id) {
+  const current = currentAircraft().find((aircraft) => aircraft.id === id);
+  if (state.mode === "replay") return current || null;
+  return current || state.detailsById.get(id) || null;
 }
 
 function collectAirports(aircraft) {
@@ -332,11 +337,27 @@ function liveTrail(id) {
   return state.historyById.get(id) || [];
 }
 
+/* The departure airport for an aircraft, when the route is known. */
+function originFor(aircraft) {
+  const airport = currentAirports().get(aircraft.origin);
+  if (hasLocation(airport)) return airport;
+  return (aircraft.route?.waypoints || []).find(
+    (waypoint) => waypoint.code === aircraft.origin && hasLocation(waypoint),
+  ) || null;
+}
+
+/* The solid line: from the departure airport (when known), through the
+   recorded positions, to where the aircraft is now. */
 function trailFor(aircraft) {
   const points = state.mode === "replay"
     ? replayTrail(aircraft.id)
     : liveTrail(aircraft.id);
   const trail = points.filter(hasLocation).map(toLatLng);
+
+  // Start the solid line at the departure airport when we know it.
+  const origin = originFor(aircraft);
+  if (origin) trail.unshift(toLatLng(origin));
+
   if (hasLocation(aircraft)) {
     const last = trail.at(-1);
     if (!last || last[0] !== aircraft.latitude || last[1] !== aircraft.longitude) {
@@ -452,17 +473,17 @@ function renderMap() {
     const trail = trailFor(aircraft);
     const destination = destinationFor(aircraft);
     const classes = `${selected ? " is-selected" : ""}${dimmed ? " is-dimmed" : ""}`;
+
+    // Two lines per aircraft:
+    //   trail     = solid, from where it departed to where it is now
+    //   projected = dashed, from where it is now to its destination
     const paths = {
-      trailShort: globalThis.L.polyline(trail.slice(-5), {
-        className: `path__trail-short${classes}`,
-        interactive: false,
-      }).addTo(pathLayer),
-      trailFull: globalThis.L.polyline(trail, {
-        className: `path__trail-full${classes}`,
+      trail: globalThis.L.polyline(trail, {
+        className: `path__trail${classes}`,
         interactive: false,
       }).addTo(pathLayer),
       projected: globalThis.L.polyline(
-        destination ? [toLatLng(aircraft), toLatLng(destination)] : [],
+        destination && !aircraft.onGround ? [toLatLng(aircraft), toLatLng(destination)] : [],
         { className: `path__projected${classes}`, interactive: false },
       ).addTo(pathLayer),
     };
@@ -728,8 +749,9 @@ function setPanel(open) {
 function renderStatus() {
   if (state.mode === "replay") {
     const frame = state.replayFrames[state.replayIndex];
+    const tag = state.replayIsDemo ? "REPLAY · DEMO · " : "REPLAY · ";
     statusText.textContent = frame
-      ? `REPLAY · ${formatClock(frame.timestamp).toUpperCase()} · ${state.speed}×`
+      ? `${tag}${formatClock(frame.timestamp).toUpperCase()} · ${state.speed}×`
       : "REPLAY · NO RECORDED DATA";
     statusPill.dataset.state = "replay";
     return;
@@ -770,7 +792,7 @@ function renderPeriodText() {
   }
   const frame = state.replayFrames[state.replayIndex];
   periodText.textContent = frame
-    ? `FRAME ${state.replayIndex + 1} OF ${state.replayFrames.length} · ${formatClock(frame.timestamp).toUpperCase()}${state.replayTruncated ? " · LIMITED" : ""}`
+    ? `FRAME ${state.replayIndex + 1} OF ${state.replayFrames.length} · ${formatClock(frame.timestamp).toUpperCase()}${state.replayTruncated ? " · LIMITED" : ""}${state.replayIsDemo ? " · DEMO DATA" : ""}`
     : "NO RECORDED POSITIONS FOR THIS DATE";
 }
 
@@ -846,7 +868,7 @@ function scheduleLiveRefresh(delaySeconds = null) {
 function applyLiveSnapshot(payload) {
   state.meta = payload.meta || {};
   state.aircraft = Array.isArray(payload.aircraft) ? payload.aircraft : [];
-  state.liveAirports = collectAirports(state.aircraft);
+  state.liveAirports = collectAirports(state.aircraft.map(mergeDetail));
   state.lastError = null;
   clearLoadError();
   if (state.mode === "live") {
@@ -854,6 +876,62 @@ function applyLiveSnapshot(payload) {
     if (!state.mapViewInitialized) fitLiveRegion();
   } else {
     renderStatus();
+  }
+  prefetchDetails();
+}
+
+/* Look up route details for EVERY aircraft in the background (not just the one
+   you click), so most planes get their route lines and origin/destination.
+   A few at a time keeps the backend happy; a plane with no route is retried
+   only every 10 minutes. */
+const detailTriedAt = new Map();
+const DETAIL_PREFETCH_WORKERS = 3;
+const DETAIL_PREFETCH_LIMIT = 40;
+const DETAIL_RETRY_MS = 10 * 60 * 1000;
+let prefetchingDetails = false;
+
+async function prefetchDetails() {
+  if (prefetchingDetails || state.mode !== "live") return;
+
+  const now = Date.now();
+  const queue = state.aircraft
+    .filter((item) => {
+      const detail = state.detailsById.get(item.id);
+      if (detail && (detail.origin || detail.destination)) return false;   // already have a route
+      return now - (detailTriedAt.get(item.id) || 0) > DETAIL_RETRY_MS;
+    })
+    .slice(0, DETAIL_PREFETCH_LIMIT);
+  if (!queue.length) return;
+
+  prefetchingDetails = true;
+  let finished = 0;
+  const redraw = () => {
+    if (state.mode !== "live") return;
+    state.liveAirports = collectAirports(state.aircraft.map(mergeDetail));
+    renderCurrent();
+  };
+
+  try {
+    const workers = Array.from({ length: DETAIL_PREFETCH_WORKERS }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        detailTriedAt.set(item.id, Date.now());
+        try {
+          const payload = await requestJson(
+            `/api/aircraft/${encodeURIComponent(item.aircraftId || item.id)}`,
+          );
+          if (payload?.aircraft) state.detailsById.set(item.id, payload.aircraft);
+        } catch (error) {
+          // Skip this aircraft; it will be retried later.
+        }
+        finished += 1;
+        if (finished % 5 === 0) redraw();   // show results as they arrive
+      }
+    });
+    await Promise.all(workers);
+    redraw();
+  } finally {
+    prefetchingDetails = false;
   }
 }
 
@@ -868,29 +946,22 @@ async function refreshLive({ immediate = false } = {}) {
   state.liveRequest = controller;
   let retrySeconds = null;
   try {
-    /* WEEK 10 TODO 3 — CONNECT THE LIVE ADAPTER
-
-       WHY: the browser should call our stable API, never an outside provider.
-
-       YOUR CODE:
-       1. Request "/api/aircraft" with requestJson(). Pass controller.signal.
-       2. Give the successful payload to applyLiveSnapshot().
-
-       Look at loadSelectedAircraft() earlier in this file for another example
-       of awaiting requestJson() with an AbortController signal. */
+    // Ask our own backend for the current aircraft, then draw them.
+    const payload = await requestJson("/api/aircraft", { signal: controller.signal });
+    applyLiveSnapshot(payload);
   } catch (error) {
     if (error.name === "AbortError") return;
 
-    /* WEEK 10 TODO 3 — HANDLE LIVE FAILURE
-
-       A 503 ApiError may contain the backend's last good snapshot in
-       error.payload. Apply that snapshot so the map does not go blank.
-
-       For any other error:
-       - save it in state.lastError;
-       - set retrySeconds to 5;
-       - showLoadError() only when no aircraft have ever loaded;
-       - call renderStatus() and renderPeriodText(). */
+    if (error instanceof ApiError && error.status === 503 && Array.isArray(error.payload?.aircraft)) {
+      // The backend is degraded but sent its last good snapshot: keep the map filled.
+      applyLiveSnapshot(error.payload);
+    } else {
+      state.lastError = error;
+      retrySeconds = 5;
+      if (!state.aircraft.length) showLoadError("Could not load live aircraft", error);
+      renderStatus();
+      renderPeriodText();
+    }
   } finally {
     if (!controller.signal.aborted) scheduleLiveRefresh(retrySeconds);
   }
@@ -898,29 +969,144 @@ async function refreshLive({ immediate = false } = {}) {
 
 function populateReplayDates() {
   replayDate.innerHTML = state.replayDates.length
-    ? state.replayDates.map((date) => `<option value="${esc(date)}">${esc(date)}</option>`).join("")
+    ? state.replayDates.map((date) => {
+      const label = recordedReplayDates.has(date) ? date : `${date} (demo)`;
+      return `<option value="${esc(date)}">${esc(label)}</option>`;
+    }).join("")
     : "<option value=\"\">No recorded dates</option>";
 }
 
 /* ---------- 7. Replay: recorded data through the same UI ---------- */
-async function loadReplayDates() {
-  state.replayDates = [];
-  try {
-    /* WEEK 10 TODO 1 — LOAD THE AVAILABLE REPLAY DATES
+/* ---------- Demo replay ----------
+   The backend only records history while it is running, so a new setup has no
+   past days. For any of the last 7 days the backend has NOT recorded, we draw
+   simulated traffic near the tracking area instead, and label it DEMO.
+   Days the backend really recorded always use the real data. */
+const DEMO_AIRPORTS = [
+  { code: "BOS", name: "Boston Logan Intl", latitude: 42.3656, longitude: -71.0096 },
+  { code: "PVD", name: "Providence T.F. Green", latitude: 41.7243, longitude: -71.4282 },
+  { code: "ORH", name: "Worcester Regional", latitude: 42.2673, longitude: -71.8757 },
+  { code: "BDL", name: "Bradley Intl", latitude: 41.9389, longitude: -72.6832 },
+  { code: "MHT", name: "Manchester-Boston Regional", latitude: 42.9326, longitude: -71.4357 },
+  { code: "ALB", name: "Albany Intl", latitude: 42.7483, longitude: -73.8017 },
+  { code: "JFK", name: "New York JFK Intl", latitude: 40.6413, longitude: -73.7781 },
+  { code: "PWM", name: "Portland Intl Jetport", latitude: 43.6462, longitude: -70.3093 },
+];
 
-       WHY: the date menu must come from recorded backend data instead of a
-       hard-coded date.
+const DEMO_FLIGHTS = [
+  { id: "demo-1", flightNumber: "DM 101", callsign: "DMO101", tail: "N101DM", origin: "JFK", destination: "PWM", cruise: 24000 },
+  { id: "demo-2", flightNumber: "DM 202", callsign: "DMO202", tail: "N202DM", origin: "ALB", destination: "BOS", cruise: 18000 },
+  { id: "demo-3", flightNumber: "DM 303", callsign: "DMO303", tail: "N303DM", origin: "BDL", destination: "MHT", cruise: 16000 },
+  { id: "demo-4", flightNumber: "DM 404", callsign: "DMO404", tail: "N404DM", origin: "PVD", destination: "PWM", cruise: 22000 },
+  { id: "demo-5", flightNumber: "DM 505", callsign: "DMO505", tail: "N505DM", origin: "ORH", destination: "JFK", cruise: 26000 },
+  { id: "demo-6", flightNumber: "DM 606", callsign: "DMO606", tail: "N606DM", origin: "BOS", destination: "BDL", cruise: 14000 },
+  { id: "demo-7", flightNumber: "DM 707", callsign: "DMO707", tail: "N707DM", origin: "MHT", destination: "PVD", cruise: 15000 },
+  { id: "demo-8", flightNumber: "DM 808", callsign: "DMO808", tail: "N808DM", origin: "PWM", destination: "ORH", cruise: 20000 },
+];
 
-       YOUR CODE:
-       1. Request "/api/replay/dates" with requestJson().
-       2. If payload.dates is an array, store it in state.replayDates.
-          Otherwise keep the empty array above. */
-  } catch (error) {
-    /* WEEK 10 TODO 1 — FAILURE STATE
+const DEMO_CYCLE_MIN = 120;    // every flight repeats a 2-hour cycle...
+const DEMO_GROUND_MIN = 30;    // ...of which 30 minutes are spent on the ground
+const DEMO_STEP_MIN = 5;       // one frame every 5 minutes
 
-       Keep state.replayDates empty and log a warning that includes the
-       error message. The page should remain usable when replay is unavailable. */
+function localIsoDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Today and the 6 days before it (newest first).
+function lastSevenDays() {
+  return Array.from({ length: 7 }, (_, daysAgo) => {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    return localIsoDate(date);
+  });
+}
+
+function distanceNm(a, b) {
+  const toRad = (degrees) => degrees * Math.PI / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 3440.065 * Math.asin(Math.sqrt(h));
+}
+
+function bearingDegrees(a, b) {
+  const toRad = (degrees) => degrees * Math.PI / 180;
+  const dLon = toRad(b.longitude - a.longitude);
+  const y = Math.sin(dLon) * Math.cos(toRad(b.latitude));
+  const x = Math.cos(toRad(a.latitude)) * Math.sin(toRad(b.latitude))
+    - Math.sin(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// Builds one simulated day: flights staggered evenly so about 2 of 8 are on the ground.
+function buildDemoReplay(date) {
+  const airports = new Map(DEMO_AIRPORTS.map((airport) => [airport.code, airport]));
+  const count = DEMO_FLIGHTS.length;
+  const slot = DEMO_CYCLE_MIN / count;
+  const airMinutes = DEMO_CYCLE_MIN - DEMO_GROUND_MIN;
+  let shift = 0;
+  for (const character of date) shift += character.charCodeAt(0) * 7;
+  const dayStart = new Date(`${date}T00:00:00`).getTime();
+  const frames = [];
+
+  for (let minute = 0; minute < 24 * 60; minute += DEMO_STEP_MIN) {
+    const aircraft = [];
+    DEMO_FLIGHTS.forEach((flight, index) => {
+      const from = airports.get(flight.origin);
+      const to = airports.get(flight.destination);
+      const offset = ((index + shift) % count) * slot + (shift % slot);
+      const phase = (((minute - offset) % DEMO_CYCLE_MIN) + DEMO_CYCLE_MIN) % DEMO_CYCLE_MIN;
+      if (phase >= airMinutes) return;                       // on the ground right now
+
+      const progress = phase / airMinutes;
+      const ramp = Math.min(1, progress / 0.15, (1 - progress) / 0.15);   // climb / descend
+      aircraft.push({
+        id: flight.id,
+        callsign: flight.callsign,
+        flightNumber: flight.flightNumber,
+        tailNumber: flight.tail,
+        operator: "Demo Air",
+        origin: flight.origin,
+        destination: flight.destination,
+        latitude: from.latitude + (to.latitude - from.latitude) * progress,
+        longitude: from.longitude + (to.longitude - from.longitude) * progress,
+        altitudeFeet: Math.max(1500, Math.round(flight.cruise * ramp / 100) * 100),
+        speedKnots: Math.round(distanceNm(from, to) / (airMinutes / 60)),
+        headingDegrees: Math.round(bearingDegrees(from, to)),
+        onGround: false,
+        emergencyActive: false,
+        progressPercent: Math.round(progress * 100),
+        route: { waypoints: [from, to] },
+      });
+    });
+    frames.push({
+      timestamp: new Date(dayStart + minute * 60000).toISOString(),
+      aircraft,
+    });
   }
+  return { frames, airports: DEMO_AIRPORTS };
+}
+
+// Real recorded days plus the last 7 days (demo where nothing was recorded).
+function mergedReplayDates() {
+  return [...new Set([...lastSevenDays(), ...recordedReplayDates])].sort().reverse();
+}
+
+async function loadReplayDates() {
+  recordedReplayDates = new Set();
+  try {
+    // Which days has the backend really recorded?
+    const payload = await requestJson("/api/replay/dates");
+    if (Array.isArray(payload.dates)) recordedReplayDates = new Set(payload.dates);
+  } catch (error) {
+    // Not fatal: the demo days below keep replay usable.
+    console.warn("Could not load replay dates:", error.message);
+  }
+  state.replayDates = mergedReplayDates();
   populateReplayDates();
   updateReplayControls();
 }
@@ -933,28 +1119,50 @@ async function loadReplay(date = replayDate.value) {
   renderPeriodText();
   updateReplayControls();
   try {
-    /* WEEK 10 TODO 2 — LOAD ONE RECORDED DAY
+    if (!date) {
+      state.replayFrames = [];
+      state.replayAirports = new Map();
+      state.replayIsDemo = false;
+      return;
+    }
 
-       WHY: replay and live data should flow through the same rendering code.
+    // A day the backend never recorded: show the labeled demo traffic.
+    if (!recordedReplayDates.has(date)) {
+      const demo = buildDemoReplay(date);
+      state.replayFrames = demo.frames;
+      state.replayAirports = normalizeReplayAirports(demo.airports);
+      state.replayTruncated = false;
+      state.replayIsDemo = true;
+      state.replayIndex = 0;
+      clearLoadError();
+      return;
+    }
 
-       YOUR CODE:
-       1. When date is empty, clear replayFrames and replayAirports, then
-          return. This is a valid no-data state, not an error.
-       2. Request `/api/replay?date=${encodeURIComponent(date)}` with
-          requestJson() and controller.signal.
-       3. Copy an array payload.frames into state.replayFrames.
-       4. Convert payload.airports with normalizeReplayAirports().
-       5. Save Boolean(payload.truncated) and reset replayIndex to zero.
-       6. If availableDates is a non-empty array, update the date menu and
-          restore replayDate.value to the requested date.
-       7. Clear any earlier load error after the request succeeds. */
+    const payload = await requestJson(
+      `/api/replay?date=${encodeURIComponent(date)}`,
+      { signal: controller.signal },
+    );
+    state.replayFrames = Array.isArray(payload.frames) ? [...payload.frames] : [];
+    state.replayAirports = normalizeReplayAirports(payload.airports);
+    state.replayTruncated = Boolean(payload.truncated);
+    state.replayIsDemo = false;
+    state.replayIndex = 0;
+
+    if (Array.isArray(payload.availableDates) && payload.availableDates.length) {
+      recordedReplayDates = new Set(payload.availableDates);
+      state.replayDates = mergedReplayDates();
+      populateReplayDates();
+      replayDate.value = date;
+    }
+    clearLoadError();
   } catch (error) {
     if (error.name === "AbortError") return;
 
-    /* WEEK 10 TODO 2 — FAILURE STATE
-
-       Clear replayFrames and replayAirports, reset replayIndex to zero, and
-       call showLoadError("Could not load replay", error). */
+    state.replayFrames = [];
+    state.replayAirports = new Map();
+    state.replayIsDemo = false;
+    state.replayIndex = 0;
+    showLoadError("Could not load replay", error);
   } finally {
     if (!controller.signal.aborted) {
       state.replayLoading = false;
@@ -984,7 +1192,9 @@ function replayDelay() {
   const recordedDelay = current && next
     ? Date.parse(next.timestamp) - Date.parse(current.timestamp)
     : (Number(state.meta.refreshIntervalSeconds) || 30) * 1000;
-  return Math.max(250, Math.min(30_000, recordedDelay / state.speed));
+  // At 1x a frame lasts at most 3 seconds (so a whole day plays in a few
+  // minutes); the speed buttons then make it 2x to 10x faster.
+  return Math.max(120, Math.min(recordedDelay, 3000) / state.speed);
 }
 
 function scheduleNextFrame() {

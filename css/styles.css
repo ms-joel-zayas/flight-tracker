@@ -546,3 +546,33 @@ ul { list-style: none; }
   .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
   .alert-banner { left: 16px; top: 60px; }
 }
+/* ---------- Path lines: solid = where it has been, dashed = where it is heading ---------- */
+.path__trail,
+.path__projected {
+  fill: none;
+  stroke: var(--ink);
+  stroke-linejoin: round;
+  /* white glow so the line stands out against the gray map */
+  filter: drop-shadow(0 0 2px #ffffff) drop-shadow(0 0 2px #ffffff);
+}
+
+/* Solid line: from the departure airport to where the plane is now */
+.path__trail {
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+/* Dashed line: from the plane to its destination */
+.path__projected {
+  stroke-width: 4;
+  stroke-linecap: butt;
+  stroke-dasharray: 14 10;
+}
+
+/* The selected plane's lines are thicker */
+.path__trail.is-selected { stroke-width: 6; }
+.path__projected.is-selected { stroke-width: 5; stroke-dasharray: 16 10; }
+
+/* Planes hidden by search or filters fade out */
+.path__trail.is-dimmed,
+.path__projected.is-dimmed { opacity: 0.15; }
