@@ -21,5 +21,21 @@
   },
   "devDependencies": {
     "jest": "30.5.2"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ms-joel-zayas/flight-tracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ms-joel-zayas/flight-tracker/issues"
+  },
+  "homepage": "https://github.com/ms-joel-zayas/flight-tracker#readme"
 }

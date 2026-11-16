@@ -878,6 +878,8 @@ async function refreshLive({ immediate = false } = {}) {
 
        Look at loadSelectedAircraft() earlier in this file for another example
        of awaiting requestJson() with an AbortController signal. */
+    const payload = await requestJson("/api/aircraft", { signal: controller.signal });
+    applyLiveSnapshot(payload);
   } catch (error) {
     if (error.name === "AbortError") return;
 
@@ -891,10 +893,20 @@ async function refreshLive({ immediate = false } = {}) {
        - set retrySeconds to 5;
        - showLoadError() only when no aircraft have ever loaded;
        - call renderStatus() and renderPeriodText(). */
+    if (error instanceof ApiError && error.status === 503 && error.payload) {
+      applyLiveSnapshot(error.payload);
+    } else {
+      state.lastError = error;
+      retrySeconds = 5;
+      if (!state.aircraft.length) showLoadError("Could not load live aircraft", error);
+      renderStatus();
+      renderPeriodText();
+    }
   } finally {
     if (!controller.signal.aborted) scheduleLiveRefresh(retrySeconds);
   }
 }
+
 
 function populateReplayDates() {
   replayDate.innerHTML = state.replayDates.length
@@ -906,6 +918,8 @@ function populateReplayDates() {
 async function loadReplayDates() {
   state.replayDates = [];
   try {
+    const payload = await requestJson("/api/replay/dates");
+    if (Array.isArray(payload.dates)) state.replayDates = payload.dates;
     /* WEEK 10 TODO 1 — LOAD THE AVAILABLE REPLAY DATES
 
        WHY: the date menu must come from recorded backend data instead of a
@@ -916,6 +930,8 @@ async function loadReplayDates() {
        2. If payload.dates is an array, store it in state.replayDates.
           Otherwise keep the empty array above. */
   } catch (error) {
+    state.replayDates = [];
+    console.warn(`Could not load replay dates: ${error.message}`);
     /* WEEK 10 TODO 1 — FAILURE STATE
 
        Keep state.replayDates empty and log a warning that includes the
@@ -933,6 +949,27 @@ async function loadReplay(date = replayDate.value) {
   renderPeriodText();
   updateReplayControls();
   try {
+    if (!date) {
+      state.replayFrames = [];
+      state.replayAirports = new Map();
+      return;
+    }
+
+    const payload = await requestJson(
+      `/api/replay?date=${encodeURIComponent(date)}`,
+      { signal: controller.signal },
+    );
+
+    state.replayFrames = Array.isArray(payload.frames) ? payload.frames : [];
+    state.replayAirports = normalizeReplayAirports(payload.airports);
+    state.replayTruncated = Boolean(payload.truncated);
+    state.replayIndex = 0;
+
+    if (Array.isArray(payload.availableDates) && payload.availableDates.length) {
+      state.replayDates = payload.availableDates;
+      populateReplayDates();
+      replayDate.value = date;
+    }
     /* WEEK 10 TODO 2 — LOAD ONE RECORDED DAY
 
        WHY: replay and live data should flow through the same rendering code.
@@ -948,8 +985,14 @@ async function loadReplay(date = replayDate.value) {
        6. If availableDates is a non-empty array, update the date menu and
           restore replayDate.value to the requested date.
        7. Clear any earlier load error after the request succeeds. */
+    clearLoadError();   
   } catch (error) {
     if (error.name === "AbortError") return;
+
+    state.replayFrames = [];
+    state.replayAirports = new Map();
+    state.replayIndex = 0;
+    showLoadError("Could not load replay", error);
 
     /* WEEK 10 TODO 2 — FAILURE STATE
 
