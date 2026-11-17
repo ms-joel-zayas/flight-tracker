@@ -796,6 +796,15 @@ function updateReplayControls() {
   scrubber.min = 0;
   scrubber.max = Math.max(0, state.replayFrames.length - 1);
   scrubber.value = state.replayIndex;
+
+  // Week 11: the recorded rows of the selected day, for analysis in a spreadsheet
+  const download = $("#replay-download");
+  const date = replayDate.value;
+  download.hidden = state.mode !== "replay" || !date || state.replayLoading;
+  if (date) {
+    download.href = `/api/export?date=${encodeURIComponent(date)}&format=csv`;
+    download.setAttribute("download", `flight-data-${date}.csv`);
+  }
 }
 
 function renderAlert() {

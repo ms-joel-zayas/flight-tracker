@@ -1,4 +1,4 @@
-# Flight Tracker — Week 10
+# Flight Tracker — Week 11
 
 This is the MatrixSpace and Uxbridge High School internship flight tracker.
 
@@ -50,6 +50,33 @@ The page should clearly show:
 4. **Error or stale data** — the request failed, or the last good update is too old.
 
 Students are not responsible for solving external API authentication, CORS, proxying, rate limits, or provider outages.
+
+## Week 11: analyze the recorded data
+
+Week 11 turns recorded flights into answers. Nothing on the map changes; the new pieces are for analysis.
+
+- **Download CSV:** in REPLAY mode, the replay bar shows **Download this day as CSV** for the selected date. It opens in Excel, Google Sheets or Numbers.
+- **`GET /api/export?date=YYYY-MM-DD&format=csv|json`:** every recorded row of one UTC day. Seeded `data.json` placeholder rows are left out. Headers `X-Export-Rows` and `X-Export-Truncated` report the size.
+- **`js/analysis.js`:** the mentor reference measures (count, distinct count, min, max, average, median, missing-data rate, aircraft per hour, update gaps, plus the challenge measures distance from Uxbridge and climb rate). Students write their own and cross-check.
+- **`npm run analyze -- data/recorded-day.csv`:** prints the reference summary for a CSV file.
+- **`npm run export-day -- YYYY-MM-DD data/recorded-day.csv`:** mentor tool that writes one day from SQLite without starting the server.
+
+**One row is not one aircraft.** A row is saved for every aircraft about every 30 seconds, so one flight appears in many rows. "How many aircraft?" means counting distinct `aircraft_id` values.
+
+| Column | Meaning |
+| --- | --- |
+| `captured_at` | When our backend saved the snapshot (ISO time, UTC) |
+| `aircraft_id` | ICAO hex address: the same aircraft all day |
+| `flight_session_id` | One continuous visit to the tracking area |
+| `callsign`, `flight_number`, `tail_number`, `aircraft_type` | Identity; often empty |
+| `latitude`, `longitude` | Position in degrees |
+| `altitude_feet`, `speed_knots`, `heading_degrees` | Empty when the aircraft did not report them |
+| `on_ground` | 1 on the ground, 0 airborne, empty if unknown |
+| `origin`, `destination` | Route codes when ADSBDB knew the route |
+| `progress_percent`, `eta` | Estimated by our backend from the route |
+| `emergency_active` | 1 when the aircraft squawked an emergency code |
+
+An empty cell means "missing", not zero. Leave empty cells out of averages and count them as missing data instead.
 
 ## Student work and mentor-owned code
 
@@ -172,6 +199,9 @@ flight-tracker/
     database.js              SQLite history and replay
     seed.js                  loads data.json into replay (npm run seed; automatic when empty)
     providers/demo.js        DEMO_FAILURE: fail on purpose for presentations
+    export.js                Week 11 CSV/JSON export of one recorded day
+  js/analysis.js             Week 11 reference analysis measures
+  scripts/                   analyze.js and export-day.js (npm run analyze / export-day)
   test/                      backend/API contract tests
   docs/                      earlier mentor references
   BACKEND.md                 backend operations and provider details
@@ -184,6 +214,7 @@ npm test
 ```
 
 - `npm run test:backend` checks normalization, providers, fallback behavior, caching, SQLite, replay, and our API contract.
+- `test/analysis.test.js` and `test/export.test.js` check the Week 11 measures and the export.
 - `npm run test:frontend` runs the earlier Week 8/9 data-quality answer-key tests.
 
 See [BACKEND.md](BACKEND.md) for configuration, usage limits, retention, and backend implementation details.

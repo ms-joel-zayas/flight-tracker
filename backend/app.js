@@ -1,9 +1,11 @@
 import path from "node:path";
 import express from "express";
+import { toCsv, toRows } from "./export.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 const MAX_REPLAY_ROWS = 50_000;
+const MAX_EXPORT_ROWS = 500_000;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseTimestamp(value, fallback) {
@@ -190,6 +192,32 @@ export function createApp({
       airports: historyStore.getAirportsForWindow?.(window.fromMs, window.toMs) || [],
       frames: groupReplayFrames(points),
     });
+  });
+
+  // Week 11: every recorded row of one UTC day, for analysis in a spreadsheet (CSV) or JavaScript (JSON).
+  // Seeded data.json placeholder rows are left out: they are not real measurements.
+  app.get("/api/export", (request, response) => {
+    response.set("Cache-Control", "no-store");
+    const date = request.query.date;
+    const format = (request.query.format || "csv").toLowerCase();
+    if (!ISO_DATE_PATTERN.test(date || "")) return response.status(400).json({ error: "date must use YYYY-MM-DD" });
+    const fromMs = Date.parse(`${date}T00:00:00.000Z`);
+    if (!Number.isFinite(fromMs) || new Date(fromMs).toISOString().slice(0, 10) !== date) {
+      return response.status(400).json({ error: "date must be a real calendar date" });
+    }
+    if (!["csv", "json"].includes(format)) return response.status(400).json({ error: "format must be csv or json" });
+
+    const points = historyStore.getReplay(fromMs, fromMs + ONE_DAY_MS - 1, MAX_EXPORT_ROWS + 1)
+      .filter((point) => !String(point.flightSessionId || "").startsWith("seed:"));
+    const truncated = points.length > MAX_EXPORT_ROWS;
+    if (truncated) points.pop();
+    response.set("X-Export-Rows", String(points.length));
+    response.set("X-Export-Truncated", String(truncated));
+
+    if (format === "json") return response.json({ date, rows: toRows(points), truncated });
+    response.set("Content-Type", "text/csv; charset=utf-8");
+    response.set("Content-Disposition", `attachment; filename="flight-data-${date}.csv"`);
+    return response.send(toCsv(points));
   });
 
   app.get("/api/health", (request, response) => {
