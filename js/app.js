@@ -1,15 +1,22 @@
 /* =====================================================================
    FLIGHT TRACKER — WEEK 10 LIVE + REPLAY FRONTEND
+   FLIGHT TRACKER — WEEK 10 LIVE + REPLAY FRONTEND
 
    JavaScript = behavior. This file controls what happens when someone
    searches, selects an aircraft, changes replay time, or refreshes data.
 
    The important Week 10 boundary:
      browser -> our /api routes -> mentor-owned backend -> data providers
+   The important Week 10 boundary:
+     browser -> our /api routes -> mentor-owned backend -> data providers
 
    The browser never calls ADSB.fi, ADSB.lol, ADSBDB, or AirLabs directly.
    It receives the same aircraft shape whether data is live or recorded.
 
+   STUDENT CHALLENGE:
+     Search this file for "WEEK 10 TODO". Complete the three numbered
+     sections in the order described in README.md. The map, backend, API
+     helper, rendering functions, and replay controls are already provided.
    STUDENT CHALLENGE:
      Search this file for "WEEK 10 TODO". Complete the three numbered
      sections in the order described in README.md. The map, backend, API
@@ -162,6 +169,20 @@ function replayAircraft() {
   return (state.replayFrames[state.replayIndex]?.aircraft || []).map(replayPoint);
 }
 
+function currentAircraft() {
+  return state.mode === "replay" ? replayAircraft() : state.aircraft;
+}
+
+function currentAirports() {
+  return state.mode === "replay" ? state.replayAirports : state.liveAirports;
+}
+
+function currentAircraftById(id) {
+  const current = currentAircraft().find((aircraft) => aircraft.id === id);
+  if (state.mode === "replay") return current || null;
+
+  const detail = state.detailsById.get(id);
+  if (!current || !detail) return detail || current || null;
 function currentAircraft() {
   return state.mode === "replay" ? replayAircraft() : state.aircraft;
 }
@@ -459,9 +480,16 @@ function renderMap() {
       }).addTo(pathLayer),
       trailFull: globalThis.L.polyline(trail, {
         className: `path__trail-full${classes}`,
+      trailShort: globalThis.L.polyline(trail.slice(-5), {
+        className: `path__trail-short${classes}`,
+        interactive: false,
+      }).addTo(pathLayer),
+      trailFull: globalThis.L.polyline(trail, {
+        className: `path__trail-full${classes}`,
         interactive: false,
       }).addTo(pathLayer),
       projected: globalThis.L.polyline(
+        destination ? [toLatLng(aircraft), toLatLng(destination)] : [],
         destination ? [toLatLng(aircraft), toLatLng(destination)] : [],
         { className: `path__projected${classes}`, interactive: false },
       ).addTo(pathLayer),
@@ -730,6 +758,7 @@ function renderStatus() {
     const frame = state.replayFrames[state.replayIndex];
     statusText.textContent = frame
       ? `REPLAY · ${formatClock(frame.timestamp).toUpperCase()} · ${state.speed}×`
+      ? `REPLAY · ${formatClock(frame.timestamp).toUpperCase()} · ${state.speed}×`
       : "REPLAY · NO RECORDED DATA";
     statusPill.dataset.state = "replay";
     return;
@@ -770,6 +799,7 @@ function renderPeriodText() {
   }
   const frame = state.replayFrames[state.replayIndex];
   periodText.textContent = frame
+    ? `FRAME ${state.replayIndex + 1} OF ${state.replayFrames.length} · ${formatClock(frame.timestamp).toUpperCase()}${state.replayTruncated ? " · LIMITED" : ""}`
     ? `FRAME ${state.replayIndex + 1} OF ${state.replayFrames.length} · ${formatClock(frame.timestamp).toUpperCase()}${state.replayTruncated ? " · LIMITED" : ""}`
     : "NO RECORDED POSITIONS FOR THIS DATE";
 }
@@ -847,6 +877,7 @@ function applyLiveSnapshot(payload) {
   state.meta = payload.meta || {};
   state.aircraft = Array.isArray(payload.aircraft) ? payload.aircraft : [];
   state.liveAirports = collectAirports(state.aircraft);
+  state.liveAirports = collectAirports(state.aircraft);
   state.lastError = null;
   clearLoadError();
   if (state.mode === "live") {
@@ -910,6 +941,7 @@ async function refreshLive({ immediate = false } = {}) {
 
 function populateReplayDates() {
   replayDate.innerHTML = state.replayDates.length
+    ? state.replayDates.map((date) => `<option value="${esc(date)}">${esc(date)}</option>`).join("")
     ? state.replayDates.map((date) => `<option value="${esc(date)}">${esc(date)}</option>`).join("")
     : "<option value=\"\">No recorded dates</option>";
 }
@@ -1027,6 +1059,7 @@ function replayDelay() {
   const recordedDelay = current && next
     ? Date.parse(next.timestamp) - Date.parse(current.timestamp)
     : (Number(state.meta.refreshIntervalSeconds) || 30) * 1000;
+  return Math.max(250, Math.min(30_000, recordedDelay / state.speed));
   return Math.max(250, Math.min(30_000, recordedDelay / state.speed));
 }
 
@@ -1162,3 +1195,4 @@ async function start() {
 }
 
 start();
+
