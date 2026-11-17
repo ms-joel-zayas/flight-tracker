@@ -480,7 +480,10 @@ function renderMap() {
     button.setAttribute("aria-pressed", String(selected));
     button.style.setProperty("--rot", `${bearingToDestination(aircraft, destination) - 90}deg`);
     button.innerHTML = `<span class="marker__nose" aria-hidden="true"></span><span class="marker__label" aria-hidden="true">${esc(aircraftName(aircraft))}</span>`;
-    button.addEventListener("click", () => selectFlight(aircraft.id));
+    button.addEventListener("click", (event) => {
+  event.stopPropagation();
+  selectFlight(aircraft.id);
+}); 
 
     const marker = globalThis.L.marker(toLatLng(aircraft), {
       icon: globalThis.L.divIcon({ className: "", html: button, iconSize: [18, 18] }),
