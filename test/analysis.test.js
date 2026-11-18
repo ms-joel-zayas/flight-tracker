@@ -37,9 +37,12 @@ test("missing-data rate is the share of rows without a value", () => {
 
 test("change over time counts distinct aircraft per UTC hour", () => {
   assert.deepEqual(aircraftPerHour(rows), [
-    { hour: "00:00", aircraft: 1, rows: 1 },
-    { hour: "01:00", aircraft: 2, rows: 4 },
+    { hour: "00:00", date: "2026-11-18", aircraft: 1, rows: 1, snapshots: 1, averageInView: 1 },
+    { hour: "01:00", date: "2026-11-18", aircraft: 2, rows: 4, snapshots: 3, averageInView: 4 / 3 },
   ]);
+  // Hours stay in time order across midnight (UTC)
+  const late = [{ aircraft_id: "x", captured_at: "2026-11-17T23:59:30.000Z" }, { aircraft_id: "x", captured_at: "2026-11-18T00:00:00.000Z" }];
+  assert.deepEqual(aircraftPerHour(late).map((h) => h.hour), ["23:00", "00:00"]);
 });
 
 test("per-aircraft summary, sorting and update gaps", () => {

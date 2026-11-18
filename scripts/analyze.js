@@ -21,5 +21,8 @@ console.log(`Missing: callsign ${pct(result.missing.callsign)}, altitude ${pct(r
 console.log(`Aircraft with a known route: ${result.aircraftWithRoute} of ${result.aircraft}`);
 console.log(`Median minutes each aircraft was seen: ${num(result.medianMinutesSeen, 1)}  Median seconds between updates: ${num(result.medianUpdateGapSeconds, 1)}`);
 console.log(`Farthest from Uxbridge: ${num(result.distanceFromReferenceNm.max, 1)} nm  Emergency rows: ${result.emergencyRows}`);
-console.log("Distinct aircraft per UTC hour:");
-for (const hour of result.perHour) console.log(`  ${hour.hour}  ${String(hour.aircraft).padStart(4)} aircraft  (${hour.rows} rows)`);
+console.log("Distinct aircraft per UTC hour (Uxbridge is UTC-5 in winter, UTC-4 in summer):");
+for (const hour of result.perHour) {
+  const share = `${hour.snapshots} of 120 snapshots`;
+  console.log(`  ${hour.date} ${hour.hour}  ${String(hour.aircraft).padStart(4)} aircraft  ${String(hour.rows).padStart(5)} rows  ${share.padEnd(20)} average in view ${hour.averageInView.toFixed(1)}`);
+}

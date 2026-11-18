@@ -99,11 +99,26 @@ export function groupBy(rows, keyOf) {
 /* "2026-11-18T01:30:00.000Z" -> "01:00" (UTC hour) */
 export const utcHour = (row) => `${String(row.captured_at).slice(11, 13)}:00`;
 
-/* Distinct aircraft seen in each UTC hour, in time order: change over time */
+/*
+ * Distinct aircraft seen in each UTC hour, in time order: change over time.
+ * snapshots shows how much of the hour was recorded (120 = the full hour at 30 s),
+ * and averageInView (rows / snapshots) compares partial hours fairly.
+ */
 export function aircraftPerHour(rows) {
-  return [...groupBy(rows, utcHour)]
-    .map(([hour, hourRows]) => ({ hour, aircraft: distinctCount(hourRows), rows: hourRows.length }))
-    .sort((a, b) => a.hour.localeCompare(b.hour));
+  const hourStart = (row) => String(row.captured_at).slice(0, 13);
+  return [...groupBy(rows, hourStart)]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([start, hourRows]) => {
+      const snapshots = distinctCount(hourRows, "captured_at");
+      return {
+        hour: `${start.slice(11, 13)}:00`,
+        date: start.slice(0, 10),
+        aircraft: distinctCount(hourRows),
+        rows: hourRows.length,
+        snapshots,
+        averageInView: hourRows.length / snapshots,
+      };
+    });
 }
 
 /* One summary row per aircraft: first and last time seen, rows, highest altitude, route known? */
