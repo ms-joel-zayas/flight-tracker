@@ -1,5 +1,5 @@
 /* =====================================================================
-   FLIGHT TRACKER — WEEK 10 LIVE + REPLAY FRONTEND
+   FLIGHT TRACKER — WEEK 12 INTERACTION + VISUALIZATION FRONTEND
 
    JavaScript = behavior. This file controls what happens when someone
    searches, selects an aircraft, changes replay time, or refreshes data.
@@ -9,6 +9,11 @@
 
    The browser never calls ADSB.fi, ADSB.lol, ADSBDB, or AirLabs directly.
    It receives the same aircraft shape whether data is live or recorded.
+
+   Week 12 additions: one selected aircraft drives the list, the map and the
+   detail panel; the panel shows the four values the user needs first and keeps
+   the rest under "More details"; "Route not published" replaces "— → —"; and
+   the Chart tab draws altitude or speed over time with Chart.js.
 
    How this file is organized:
      1. Page pieces and constants
@@ -33,6 +38,7 @@ import {
   formatVerticalRate,
   requestJson,
 } from "./api.js";
+import { CHART_FIELDS, buildSeries, summarizeSeries } from "./chart-data.js";
 
 /* ---------- 1. Grab the page pieces and set shared constants ---------- */
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -59,6 +65,7 @@ const replayDate = $("#replay-date");
 const periodText = $("#replay-period");
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Aircraft data <a href="https://adsb.fi/">ADSB.fi</a> / <a href="https://adsb.lol/">ADSB.lol</a> / <a href="https://www.adsbdb.com/">ADSBDB</a>';
 
@@ -70,12 +77,16 @@ const state = {
   replayAirports: new Map(),
   detailsById: new Map(),
   historyById: new Map(),
+  replayHistoryById: new Map(),
   replayDates: [],
   replayFrames: [],
   replayTruncated: false,
   replayLoading: false,
   replayIndex: 0,
   selectedId: null,
+  selectedSnapshot: null,
+  selectedLastSeenAt: null,
+  chartField: "altitude",
   tab: "details",
   panelOpen: true,
   search: "",
@@ -104,6 +115,7 @@ let airportLayer = null;
 let aircraftLayer = null;
 let pathLayer = null;
 let suppressPopupClose = false;
+let chart = null;
 
 /* ---------- 3. Helpers for the normalized live/replay data ---------- */
 function esc(value) {
@@ -124,6 +136,12 @@ function displayValue(value) {
   return value === null || value === undefined || value === ""
     ? "Not available"
     : String(value);
+}
+
+// Week 11 finding: 58% of aircraft never had a route. Say so in words instead of "— → —".
+function routeText(aircraft) {
+  if (!aircraft.origin && !aircraft.destination) return "Route not published";
+  return `${aircraft.origin || "—"} → ${aircraft.destination || "—"}`;
 }
 
 function hasLocation(item) {
@@ -253,7 +271,7 @@ function buildFlightList() {
         <span class="flight-row__dot" aria-hidden="true"></span>
         <span class="flight-row__text">
           <strong class="flight-row__name">${esc(aircraftName(item))}</strong>
-          <span class="flight-row__route">${esc(item.origin || "—")} → ${esc(item.destination || "—")}</span>
+          <span class="flight-row__route${item.origin || item.destination ? "" : " is-missing"}">${esc(routeText(item))}</span>
         </span>
         <span class="flight-row__flag" aria-hidden="true">⚠</span>
       </button>
@@ -274,6 +292,12 @@ function initializeMap() {
   pathLayer = globalThis.L.layerGroup().addTo(map);
   aircraftLayer = globalThis.L.layerGroup().addTo(map);
   map.setView([42.08, -71.52], 8);
+
+  // Clicking empty map clears the selection. A click on an aircraft marker is not "empty map".
+  map.on("click", (event) => {
+    if (event.originalEvent?.target?.closest?.(".marker")) return;
+    if (state.selectedId) closeDetail();
+  });
 
   map.on("popupclose", (event) => {
     if (suppressPopupClose || !state.selectedId) return;
@@ -327,9 +351,17 @@ function liveTrail(id) {
   return state.historyById.get(id) || [];
 }
 
+// Replay frames are 15 minutes apart, so a selected replay aircraft uses its full recorded history (every 30 s).
+function recordedReplayPoints(id) {
+  const recorded = state.replayHistoryById.get(id);
+  if (!Array.isArray(recorded)) return null;
+  const untilMs = Date.parse(state.replayFrames[state.replayIndex]?.timestamp);
+  return recorded.filter((point) => !Number.isFinite(untilMs) || Date.parse(point.capturedAt) <= untilMs);
+}
+
 function trailFor(aircraft) {
   const points = state.mode === "replay"
-    ? replayTrail(aircraft.id)
+    ? recordedReplayPoints(aircraft.id) || replayTrail(aircraft.id)
     : liveTrail(aircraft.id);
   const trail = points.filter(hasLocation).map(toLatLng);
   if (hasLocation(aircraft)) {
@@ -369,9 +401,7 @@ function bearingToDestination(aircraft, destination) {
 }
 
 function popupHtml(aircraft) {
-  const route = aircraft.origin || aircraft.destination
-    ? `${esc(aircraft.origin || "—")} → ${esc(aircraft.destination || "—")}`
-    : "Route not published";
+  const route = esc(routeText(aircraft));
   const altitude = Number.isFinite(aircraft.altitudeFeet)
     ? `${Math.round(aircraft.altitudeFeet).toLocaleString()} ft`
     : aircraft.onGround ? "On ground" : "Not available";
@@ -470,7 +500,7 @@ function renderMap() {
     button.dataset.band = altitudeBand(aircraft.altitudeFeet);
     button.setAttribute(
       "aria-label",
-      `${aircraftName(aircraft)}, ${aircraft.origin || "unknown origin"} to ${aircraft.destination || "unknown destination"}`,
+      `${aircraftName(aircraft)}, ${routeText(aircraft).replace("→", "to")}`,
     );
     button.setAttribute("aria-pressed", String(selected));
     button.style.setProperty("--rot", `${bearingToDestination(aircraft, destination) - 90}deg`);
@@ -553,40 +583,146 @@ function calculateProgress(aircraft) {
   );
 }
 
-function chartPoints(points) {
-  const samples = points.filter((point) => Number.isFinite(point.altitudeFeet));
-  if (samples.length < 2) return { samples, points: "" };
-  const altitudes = samples.map((point) => point.altitudeFeet);
-  const minimum = Math.min(...altitudes);
-  const maximum = Math.max(...altitudes);
-  const range = Math.max(maximum - minimum, 1);
-  const graph = samples.map((point, index) => ({
-    x: 4 + (index / (samples.length - 1)) * 192,
-    y: 62 - ((point.altitudeFeet - minimum) / range) * 54,
-  }));
-  return {
-    samples,
-    minimum,
-    maximum,
-    points: graph.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
-  };
+/* ---------- Chart tab: altitude or speed over time (Chart.js) ---------- */
+function replayFramePoints(id) {
+  return state.replayFrames.slice(0, state.replayIndex + 1).flatMap((frame) => (frame.aircraft || [])
+    .map(replayPoint)
+    .filter((item) => item.id === id)
+    .map((item) => ({ ...item, capturedAt: frame.timestamp })));
+}
+
+function chartSource() {
+  const id = state.selectedId;
+  if (state.mode === "replay") {
+    const untilMs = Date.parse(state.replayFrames[state.replayIndex]?.timestamp);
+    const recorded = state.replayHistoryById.get(id);
+    return {
+      points: Array.isArray(recorded) ? recorded : replayFramePoints(id),
+      untilMs: Number.isFinite(untilMs) ? untilMs : Infinity,
+      loading: recorded === undefined,
+    };
+  }
+  return { points: state.historyById.get(id) || [], untilMs: Infinity, loading: false };
+}
+
+function formatTick(value) {
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
+function drawChart(series) {
+  const { label, unit } = CHART_FIELDS[series.field];
+  const ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#111111";
+  const grid = getComputedStyle(document.documentElement).getPropertyValue("--light").trim() || "#ececec";
+  const lastIndex = series.data.findLastIndex((item) => item.y !== null);
+  if (!chart) {
+    globalThis.Chart.defaults.font.family = getComputedStyle(document.body).fontFamily; // match the page
+    chart = new globalThis.Chart($("#detail-chart"), {
+      type: "line",
+      data: { datasets: [{ data: [] }] },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        spanGaps: false, // a missing value is a gap, never a line drawn through data we do not have
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => formatTick(items[0].parsed.x),
+              label: (item) => `${CHART_FIELDS[state.chartField].label}: ${Math.round(item.parsed.y).toLocaleString()} ${CHART_FIELDS[state.chartField].unit}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            title: { display: true, text: "Time" },
+            ticks: { callback: (value) => formatTick(value), maxTicksLimit: 4, color: ink },
+            grid: { color: grid },
+          },
+          y: {
+            title: { display: true, text: "" },
+            ticks: { callback: (value) => Number(value).toLocaleString(), maxTicksLimit: 5, color: ink },
+            grid: { color: grid },
+          },
+        },
+      },
+    });
+  }
+  const dataset = chart.data.datasets[0];
+  dataset.data = series.data;
+  dataset.borderColor = ink;
+  dataset.backgroundColor = ink;
+  dataset.borderWidth = 2;
+  dataset.tension = 0;
+  // Only the newest point gets a dot: "where the aircraft is now" on the line.
+  dataset.pointRadius = (context) => (context.dataIndex === lastIndex ? 4 : 0);
+  chart.options.scales.y.title.text = `${label} (${unit})`;
+  chart.options.scales.y.suggestedMin = series.field === "speed" ? 0 : undefined;
+  chart.update("none");
 }
 
 function renderChart() {
-  const points = state.mode === "replay"
-    ? replayTrail(state.selectedId)
-    : state.historyById.get(state.selectedId) || [];
-  const chart = chartPoints(points);
-  $("#altitude-chart-line").setAttribute("points", chart.points);
-  $("#altitude-chart-note").textContent = chart.samples.length < 2
-    ? "Altitude history is not available yet."
-    : `${chart.samples.length} samples · ${chart.minimum.toLocaleString()}–${chart.maximum.toLocaleString()} ft`;
+  if (!state.selectedId) return;
+  const field = state.chartField;
+  const { label } = CHART_FIELDS[field];
+  $("#chart-title").textContent = `${label.toUpperCase()} OVER TIME`;
+  $$("[data-chart-field]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.chartField === field));
+  });
+  const { points, untilMs, loading } = chartSource();
+  const series = buildSeries(points, field, { untilMs });
+  const summary = loading ? "Loading recorded history…" : summarizeSeries(series);
+  const canvas = $("#detail-chart");
+  canvas.setAttribute("aria-label", `${label} over time. ${summary}`);
+  if (!globalThis.Chart) {
+    $("#chart-summary").textContent = `Chart library not loaded: run npm install and restart the server. ${summary}`;
+    return;
+  }
+  $("#chart-summary").textContent = summary;
+  if (state.tab === "chart") drawChart(series);
+}
+
+async function loadReplayHistory(id) {
+  const aircraft = currentAircraftById(id);
+  const date = replayDate.value;
+  if (!aircraft?.aircraftId || !date || state.replayHistoryById.has(id)) return;
+  state.replayHistoryById.set(id, undefined);
+  const fromMs = Date.parse(`${date}T00:00:00.000Z`);
+  const window = new URLSearchParams({
+    from: new Date(fromMs).toISOString(),
+    to: new Date(fromMs + ONE_DAY_MS - 1).toISOString(),
+  });
+  try {
+    const payload = await requestJson(
+      `/api/aircraft/${encodeURIComponent(aircraft.aircraftId)}/history?${window}`,
+    );
+    // The same aircraft can make several visits in one day: keep only this visit (flight session).
+    state.replayHistoryById.set(id, (payload.points || []).filter((point) => (point.flightSessionId || point.id) === id));
+  } catch {
+    state.replayHistoryById.set(id, null); // fall back to the 15-minute replay frames
+  }
+  if (state.selectedId === id && state.mode === "replay") {
+    renderChart();
+    renderMap();
+    renderSelection();
+  }
 }
 
 /* ---------- 5. Load and show one selected aircraft ---------- */
-function fillDetail(aircraft) {
+function fillDetail(aircraft, { gone = false } = {}) {
   if (!aircraft) return;
+  // The selected aircraft left the tracking area (or this replay frame): keep its last values, say so.
+  detailPanel.dataset.gone = String(gone);
+  const goneNote = $("#detail-gone");
+  goneNote.hidden = !gone;
+  goneNote.textContent = gone
+    ? `Not in the tracking area ${state.mode === "replay" ? "in this frame" : "right now"}. Last seen ${formatClock(state.selectedLastSeenAt)}.`
+    : "";
   $("#detail-title").textContent = aircraftName(aircraft);
+  const routeKnown = Boolean(aircraft.origin || aircraft.destination);
+  $("#detail-route").hidden = !routeKnown;
+  $("#detail-route-missing").hidden = routeKnown;
   $("#detail-origin").textContent = aircraft.origin || "—";
   $("#detail-dest").textContent = aircraft.destination || "—";
   const observedDeparture = aircraft.departureTime || aircraft.firstObservedAt;
@@ -598,6 +734,7 @@ function fillDetail(aircraft) {
     ? "ETA · CALCULATED"
     : "ETA";
   $("#detail-eta").textContent = formatClock(aircraft.eta);
+  $("#detail-eta").parentElement.hidden = !routeKnown; // no route, no ETA to show
   $("#detail-callsign").textContent = displayValue(aircraft.callsign);
   $("#detail-tail").textContent = displayValue(aircraft.tailNumber);
   $("#detail-aircraft").textContent = displayValue(aircraftDescription(aircraft));
@@ -622,7 +759,7 @@ function fillDetail(aircraft) {
     ? aircraft.progressPercent
     : calculateProgress(aircraft);
   const progressElement = $("#detail-progress");
-  progressElement.hidden = progress === null;
+  progressElement.hidden = progress === null || !routeKnown;
   if (progress !== null) {
     $("#detail-progress-bar").style.width = `${progress}%`;
     progressElement.setAttribute("aria-valuenow", String(progress));
@@ -657,9 +794,6 @@ async function loadSelectedAircraft(id) {
     state.liveAirports = collectAirports(
       state.aircraft.map((item) => currentAircraftById(item.id) || item),
     );
-    if (!detail.value.aircraft.origin && !detail.value.aircraft.destination) {
-      messages.push("Route is not published for this aircraft.");
-    }
   } else {
     messages.push(detail.reason.status === 404
       ? "Aircraft left the live region."
@@ -681,6 +815,7 @@ function selectFlight(id) {
   const aircraft = currentAircraftById(id);
   if (!aircraft) return;
   state.selectedId = id;
+  rememberSelected(aircraft);
   detailPanel.hidden = false;
   setPanel(true);
   renderSelection();
@@ -694,13 +829,23 @@ function selectFlight(id) {
     });
   } else {
     detailStatus.textContent = "Showing recorded replay data.";
+    loadReplayHistory(id);
   }
+}
+
+// Keep the last known values of the selected aircraft, so the panel can explain where it went.
+function rememberSelected(aircraft) {
+  state.selectedSnapshot = aircraft;
+  state.selectedLastSeenAt = state.mode === "replay"
+    ? state.replayFrames[state.replayIndex]?.timestamp
+    : aircraft.observedAt || state.meta.updatedAt;
 }
 
 function closeDetail() {
   state.detailRequest?.abort();
   const previousId = state.selectedId;
   state.selectedId = null;
+  state.selectedSnapshot = null;
   detailPanel.hidden = true;
   detailStatus.textContent = "";
   if (previousId) {
@@ -824,11 +969,10 @@ function renderAlert() {
 }
 
 function renderCurrent() {
-  if (state.selectedId && !currentAircraftById(state.selectedId)) {
-    state.selectedId = null;
-    detailPanel.hidden = true;
-    detailStatus.textContent = "";
-  }
+  // The selection survives live refreshes and replay frames. If the aircraft is gone, the panel stays
+  // open with its last values and says so, instead of disappearing under the user's cursor.
+  const selected = state.selectedId ? currentAircraftById(state.selectedId) : null;
+  if (selected) rememberSelected(selected);
   renderFilters();
   buildFlightList();
   renderMap();
@@ -838,7 +982,7 @@ function renderCurrent() {
   renderStatus();
   renderPeriodText();
   updateReplayControls();
-  if (state.selectedId) fillDetail(currentAircraftById(state.selectedId));
+  if (state.selectedId) fillDetail(selected || state.selectedSnapshot, { gone: !selected });
 }
 
 function showLoadError(title, error) {
@@ -864,6 +1008,10 @@ function applyLiveSnapshot(payload) {
   state.meta = payload.meta || {};
   state.aircraft = Array.isArray(payload.aircraft) ? payload.aircraft : [];
   state.liveAirports = collectAirports(state.aircraft);
+  // Keep the selected aircraft's chart growing between history loads.
+  const selectedLive = state.selectedId ? liveAircraftById(state.selectedId) : null;
+  const history = selectedLive ? state.historyById.get(state.selectedId) : null;
+  if (history) history.push({ ...selectedLive, capturedAt: selectedLive.observedAt || state.meta.updatedAt });
   state.lastError = null;
   clearLoadError();
   // The server is running but has not had one successful provider answer yet: say why on the page,
@@ -939,6 +1087,8 @@ async function loadReplay(date = replayDate.value) {
   state.replayRequest?.abort();
   const controller = new AbortController();
   state.replayRequest = controller;
+  if (state.mode === "replay") closeDetail(); // aircraft from another date are not in this replay
+  state.replayHistoryById.clear();
   state.replayLoading = true;
   renderPeriodText();
   updateReplayControls();
@@ -1055,6 +1205,12 @@ function wireEvents() {
   $("#detail-close").addEventListener("click", closeDetail);
   $("#tab-details").addEventListener("click", () => setTab("details"));
   $("#tab-chart").addEventListener("click", () => setTab("chart"));
+  $$("[data-chart-field]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.chartField = button.dataset.chartField;
+      renderChart();
+    });
+  });
   panelHandle.addEventListener("click", () => setPanel(!state.panelOpen));
 
   searchInput.addEventListener("input", () => {

@@ -264,6 +264,11 @@ export function createApp({
     "/vendor/leaflet",
     express.static(path.join(config.projectDirectory, "node_modules", "leaflet", "dist")),
   );
+  // Week 12: Chart.js draws the altitude/speed chart. Served from node_modules like Leaflet.
+  app.use(
+    "/vendor/chartjs",
+    express.static(path.join(config.projectDirectory, "node_modules", "chart.js", "dist")),
+  );
 
   app.use("/api", (request, response) => {
     response.status(404).json({ error: "API endpoint not found" });

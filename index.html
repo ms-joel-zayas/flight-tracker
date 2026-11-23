@@ -32,7 +32,7 @@
         <span id="status-text">LOADING DATA…</span>
       </p>
 
-      <span class="badge">v5.0</span>
+      <span class="badge">v7.0</span>
     </div>
   </header>
 
@@ -83,9 +83,16 @@
           <button class="tab" type="button" role="tab" id="tab-chart" aria-selected="false" aria-controls="view-chart">Chart</button>
         </div>
 
+        <!-- Shown when the selected aircraft is no longer in the tracking area (Week 12) -->
+        <p class="detail__gone" id="detail-gone" role="status" hidden></p>
+
         <!-- Tab 1: details -->
         <div class="detail__view" id="view-details" role="tabpanel" aria-labelledby="tab-details">
-          <div class="route">
+          <!-- Week 11 recommendation: say "Route not published" instead of showing "— → —" -->
+          <p class="route__missing" id="detail-route-missing" hidden>
+            <strong>Route not published.</strong> This flight did not share a route, so only its position, altitude, speed and heading are shown.
+          </p>
+          <div class="route" id="detail-route">
             <strong class="route__code" id="detail-origin">BOS</strong>
             <div class="progress" id="detail-progress" role="progressbar" aria-label="Flight progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62">
               <span class="progress__bar" id="detail-progress-bar" style="width: 62%"></span>
@@ -96,28 +103,42 @@
             <span><span id="detail-departure-label">Departed</span> <span id="detail-departed">09:12</span></span>
             <strong><span id="detail-eta-label">ETA</span> <span id="detail-eta">14:42</span></strong>
           </div>
-          <dl class="fields">
+          <!-- Week 12: the four values the user needs first (REQ-02) -->
+          <dl class="fields fields--core">
             <div><dt>Callsign</dt><dd id="detail-callsign">ACA2210</dd></div>
-            <div><dt>Tail number</dt><dd id="detail-tail">Not available</dd></div>
-            <div><dt>Aircraft</dt><dd id="detail-aircraft">Not available</dd></div>
-            <div><dt id="detail-operator-label">Operator</dt><dd id="detail-operator">Not available</dd></div>
             <div><dt>Altitude</dt><dd id="detail-altitude">33,000 ft</dd></div>
             <div><dt>Speed</dt><dd id="detail-speed">448 kt</dd></div>
             <div><dt>Heading</dt><dd id="detail-heading">—</dd></div>
-            <div><dt>Vertical rate</dt><dd id="detail-vertical-rate">Not available</dd></div>
-            <div><dt>Squawk</dt><dd id="detail-squawk">Not available</dd></div>
           </dl>
+          <!-- Everything else stays one click away, behind the scenes until the user asks -->
+          <details class="more" data-component="MoreDetails">
+            <summary>More details</summary>
+            <dl class="fields">
+              <div><dt>Tail number</dt><dd id="detail-tail">Not available</dd></div>
+              <div><dt>Aircraft</dt><dd id="detail-aircraft">Not available</dd></div>
+              <div><dt id="detail-operator-label">Operator</dt><dd id="detail-operator">Not available</dd></div>
+              <div><dt>Vertical rate</dt><dd id="detail-vertical-rate">Not available</dd></div>
+              <div><dt>Squawk</dt><dd id="detail-squawk">Not available</dd></div>
+            </dl>
+          </details>
           <p class="detail__status" id="detail-status" role="status"></p>
         </div>
 
-        <!-- Tab 2: chart placeholder (component later: AltitudeChart) -->
+        <!-- Tab 2: altitude or speed over time, drawn by Chart.js (component: FlightChart, UC-3) -->
         <div class="detail__view" id="view-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
-          <div class="chart-placeholder" data-component="AltitudeChart">
-            <p class="chart-placeholder__title">ALTITUDE OVER TIME</p>
-            <svg viewBox="0 0 200 70" preserveAspectRatio="none" aria-hidden="true">
-              <polyline id="altitude-chart-line" points="" />
-            </svg>
-            <p class="chart-placeholder__note" id="altitude-chart-note">Select an aircraft to load altitude history.</p>
+          <div class="chart" data-component="FlightChart">
+            <div class="chart__header">
+              <p class="chart__title" id="chart-title">ALTITUDE OVER TIME</p>
+              <div class="btn-group" role="group" aria-label="Chart measure">
+                <button class="btn" type="button" data-chart-field="altitude" aria-pressed="true">Altitude</button>
+                <button class="btn" type="button" data-chart-field="speed" aria-pressed="false">Speed</button>
+              </div>
+            </div>
+            <div class="chart__canvas">
+              <canvas id="detail-chart" role="img" aria-label="Altitude over time"></canvas>
+            </div>
+            <!-- The same information in words, for everyone and for screen readers -->
+            <p class="chart__summary" id="chart-summary" aria-live="polite">Select an aircraft to see its history.</p>
           </div>
         </div>
       </section>
@@ -195,6 +216,7 @@
 </div>
 
 <script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/chartjs/chart.umd.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-# Sample Dependency Risk Log (mentor reference, Week 9)
+# Sample Dependency Risk Log (mentor reference, Weeks 9 and 12)
 
 This is one possible answer for the Week 9 Challenge: document one dependency risk or assumption. Students write their own from what they read and what they saw, then compare. It is a reference, not an answer key to copy.
 
@@ -12,6 +12,7 @@ A **dependency** is anything our app needs that we did not write and do not cont
 | Latitude and longitude order | Leaflet takes `[lat, lon]`. Some tools (GeoJSON) take `[lon, lat]`. Swapped values draw the aircraft in the wrong place. | `locationProblem()` in `js/quality.js` warns when a number is out of range. A swap that stays in range (Boston) is only visible on the map, so look at the map too. | Name the fields `lat` and `lon`, convert in one function (`toLatLng`), and test it. |
 | Placeholder positions | `data.json` positions are straight-line placeholders. Real flights follow curved paths and the map will show that gap. | Compare a trail with a real route for the same airports. | Keep the note in `meta.notes`. Do not describe the trails as real routes. |
 | Jest 30.5.2 (dev only) | A tool we use only to run tests. It is a `devDependency`, so the page never loads it. `npm audit` reports an advisory in `deepmerge`, a package that Jest itself depends on (a dependency of a dependency). | Run `npm audit` and read the advisory. Check that `jest` is under `devDependencies` and that no `<script>` in `index.html` loads it. | Accept the risk for a school project: it runs only on a developer's machine, on our own files. Do not follow `npm audit fix --force`, which would install Jest 25 and break the tests. Re-check when Jest releases an update. |
+| Chart.js 4.5.1 (Week 12) | The chart uses Chart.js 4. Many tutorials and AI answers still show Chart.js 2 code (`scales: { xAxes: [...] }`), which does not work in version 4. A time axis would also need a separate date adapter, so we use a number axis of milliseconds and format the labels ourselves. | `npm ls chart.js`; read the docs at chartjs.org for version 4; `test/vendor.test.js` checks the browser file is served. | Pin the exact version. If the file is missing, the Chart tab says so and the summary sentence still works. |
 | npm install | `node_modules/` is not saved in git, so a fresh clone has no Leaflet until someone runs `npm install`. | Clone into a new folder and open the page: it says "Could not load Leaflet". | Put `npm install` first in the README. Commit `package.json` and `package-lock.json`. |
 
 ## What was tested, not guessed

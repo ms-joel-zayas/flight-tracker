@@ -1,8 +1,8 @@
-# Flight Tracker — Week 11
+# Flight Tracker — Week 12
 
 This is the MatrixSpace and Uxbridge High School internship flight tracker.
 
-> This branch contains the mentor-prepared live-data integration. Students should do the Week 10 challenge in their assigned student branch and use this branch as a reference, not as an answer key to copy.
+> This branch (`v7-final`) is the mentor reference for Week 12. Students do the Week 12 work in their own `v7-uxbridge` branch, created from their final Week 11 work, and use this branch as a reference, not as an answer key to copy.
 
 Week 10 connects the same frontend to two kinds of data:
 
@@ -77,6 +77,41 @@ Week 11 turns recorded flights into answers. Nothing on the map changes; the new
 | `emergency_active` | 1 when the aircraft squawked an emergency code |
 
 An empty cell means "missing", not zero. Leave empty cells out of averages and count them as missing data instead.
+
+## Week 12: interaction and visualization
+
+Week 12 is about what the user sees when they pick one aircraft. Run `npm install` once after pulling this branch: it adds Chart.js.
+
+- **One selection drives everything.** `state.selectedId` is the only record of which aircraft is selected.
+  - The list row, the map marker, the trail and the detail panel all render from it.
+  - The selection survives live refreshes and replay frames.
+  - Escape, the × button, or a click on empty map clears it.
+- **The aircraft left.** If the selected aircraft is no longer in the data, the panel stays open with its last values, dimmed, and says "Not in the tracking area … Last seen …".
+- **What the user needs first.** Callsign, altitude, speed and heading are at the top of the panel. Tail number, aircraft, operator, vertical rate and squawk are under **More details**.
+- **Missing fields, in words.**
+  - Missing values show "Not available".
+  - An aircraft on the ground shows "On ground" for altitude.
+  - A flight with no route shows **"Route not published"** instead of "— → —" (the Week 11 recommendation: 58% of aircraft in the recorded evening had no route).
+- **Chart tab (Chart.js 4.5.1).** Altitude or speed over time for the selected aircraft.
+  - Labelled axes with units, and a dot on the newest point.
+  - A gap wherever a value is missing; the line never runs through data we do not have.
+  - A one-sentence summary under the chart, which screen readers also read. For example: "Descended from 10,250 ft to 6,000 ft in 4 min."
+  - The pure helpers are in `js/chart-data.js`, tested in `tests/chart-data.test.js`.
+- **Replay charts use the full history.** Replay frames are 15 minutes apart, so a selected replay aircraft loads its own recorded points (every 30 s) from `/api/aircraft/:id/history`. The chart and trail stop at the frame being shown.
+
+### Test aircraft from the recorded evening
+
+Use REPLAY on **2026-11-17**. Frame times are UTC; Uxbridge is 5 hours behind.
+
+| Frame (UTC) | Aircraft | What to check |
+| --- | --- | --- |
+| 2 · 22:44 | N101NY | Route HPN → APC. Chart: "Descended from 10,250 ft to 6,000 ft in 4 min". Toggle Speed. |
+| 2 · 22:44 | N161B | "Route not published" in the list and the panel; no ETA. Step to frame 3: "Not in the tracking area in this frame". |
+| 2 · 22:44 | DAL2314 | Just landed: altitude shows "On ground". Chart: the descent to −350 ft, then a gap for the 10 samples on the ground (no line drawn through them). |
+| 2 · 22:44 | N53569 | Airborne at −125 ft: the value is shown as reported (the Week 11 anomaly). |
+| 2026-11-18, frame 1 · 00:14 | N789FD (B752) | No callsign: the list shows the tail number instead; Callsign shows "Not available"; on the ground, no route. |
+
+> The backend keeps 7 days of history (`HISTORY_RETENTION_HOURS=168`). Without a longer setting, the 17 November recording is deleted after 24 November. `data/recorded-day.csv` keeps a copy either way.
 
 ## Student work and mentor-owned code
 
@@ -201,6 +236,7 @@ flight-tracker/
     providers/demo.js        DEMO_FAILURE: fail on purpose for presentations
     export.js                Week 11 CSV/JSON export of one recorded day
   js/analysis.js             Week 11 reference analysis measures
+  js/chart-data.js           Week 12 chart series and summary sentence (used by js/app.js)
   scripts/                   analyze.js and export-day.js (npm run analyze / export-day)
   test/                      backend/API contract tests
   docs/                      earlier mentor references
@@ -215,7 +251,8 @@ npm test
 
 - `npm run test:backend` checks normalization, providers, fallback behavior, caching, SQLite, replay, and our API contract.
 - `test/analysis.test.js` and `test/export.test.js` check the Week 11 measures and the export.
-- `npm run test:frontend` runs the earlier Week 8/9 data-quality answer-key tests.
+- `npm run test:frontend` runs the Week 8/9 data-quality answer-key tests and the Week 12 chart tests (`tests/chart-data.test.js`).
+- `test/vendor.test.js` checks that the server delivers the Chart.js file the page loads.
 
 See [BACKEND.md](BACKEND.md) for configuration, usage limits, retention, and backend implementation details.
 

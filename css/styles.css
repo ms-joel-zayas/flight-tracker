@@ -314,18 +314,22 @@ ul { list-style: none; }
 .detail__status { min-height: 1.2em; margin: 12px 0 0; color: var(--gray); font-size: 11px; }
 .times .is-missing { font-weight: normal; font-style: italic; color: var(--gray); }
 
-.chart-placeholder {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border: var(--line) dashed var(--ink);
-  background: var(--lighter);
-}
-.chart-placeholder__title { font-size: 12px; font-weight: bold; letter-spacing: 0.06em; }
-.chart-placeholder svg { height: 84px; width: 100%; }
-.chart-placeholder polyline { fill: none; stroke: var(--ink); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
-.chart-placeholder__note { font-size: 11px; color: var(--gray); }
+.route__missing { margin: 0; padding: 8px 10px; border: 1px dashed var(--gray); background: var(--lighter); font-size: 12px; }
+.route[hidden] { display: none; }
+.detail__gone { margin: 0; padding: 8px 12px; background: var(--ink); color: var(--paper); font-size: 12px; font-weight: bold; }
+.detail[data-gone="true"] .detail__view { opacity: 0.6; }
+.fields--core dd { font-size: 16px; }
+.more { margin-top: 12px; border-top: 1px solid var(--mid); padding-top: 8px; }
+.more summary { cursor: pointer; font-size: 12px; font-weight: bold; letter-spacing: 0.04em; }
+.more .fields { margin-top: 10px; }
+.flight-row__route.is-missing { font-style: italic; color: var(--gray); }
+
+/* Week 12: the chart (Chart.js draws inside the canvas; the summary says the same thing in words) */
+.chart { display: flex; flex-direction: column; gap: 8px; }
+.chart__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chart__title { margin: 0; font-size: 12px; font-weight: bold; letter-spacing: 0.06em; }
+.chart__canvas { position: relative; height: 170px; }
+.chart__summary { margin: 0; font-size: 12px; color: #444444; }
 
 
 /* ---------- 8. Map (Leaflet draws the map; these rules style what we add to it) ---------- */
